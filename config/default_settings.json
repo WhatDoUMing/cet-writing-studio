@@ -1,0 +1,69 @@
+{
+  "app": {
+    "name": "CET Writing Studio · 四六级作文批改",
+    "version": "1.0.0",
+    "theme": "light",
+    "reduce_motion": false,
+    "window_width": 1280,
+    "window_height": 820,
+    "usage_mode": "student",
+    "exam_level": "CET-4"
+  },
+  "grading": {
+    "prompt_version": "cet-json-v1",
+    "rubric_versions": {
+      "CET-4": "cet-4-holistic-2026-v1",
+      "CET-6": "cet-6-holistic-2026-v1"
+    }
+  },
+  "evaluation": {
+    "repeat_runs": 1,
+    "severe_error_threshold": 5.0
+  },
+  "ai": {
+    "provider": "glm",
+    "api_base": "https://open.bigmodel.cn/api/paas/v4",
+    "model": "glm-5.3-flash",
+    "temperature": 0.7,
+    "top_k": 10,
+    "max_tokens": 4096,
+    "timeout_seconds": 180,
+    "providers": {
+      "glm": {
+        "api_base": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-5.3-flash"
+      },
+      "openai": {
+        "api_base": "https://api.openai.com/v1",
+        "model": "gpt-5-mini"
+      },
+      "deepseek": {
+        "api_base": "https://api.deepseek.com/v1",
+        "model": "deepseek-v4-flash"
+      }
+    }
+  },
+  "ocr": {
+    "mode": "online",
+    "online_provider": "glm",
+    "online_model": "glm-ocr",
+    "online_timeout_seconds": 120,
+    "online_max_dimension": 2000,
+    "online_jpeg_quality": 88,
+    "online_max_bytes": 1500000,
+    "model_name": "microsoft/trocr-base-handwritten",
+    "local_model_path": "",
+    "device": "auto",
+    "max_length": 2048,
+    "beam_width": 4
+  },
+  "paths": {
+    "database": "data/cet_writing.db",
+    "models": "models",
+    "logs": "logs/CETWritingStudio",
+    "memory": "data/CETWritingStudio/rules.md"
+  },
+  "database": {
+    "journal_mode": "WAL"
+  }
+}
