@@ -166,7 +166,7 @@ QLabel[metricValue="true"] {
 QLabel[score="true"] {
     font-size: 44px;
     font-weight: 600;
-    color: %(success)s;
+    color: %(accent)s;
 }
 
 QLabel[tag="true"] {

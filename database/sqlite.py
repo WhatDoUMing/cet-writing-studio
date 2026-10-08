@@ -14,6 +14,7 @@ from grading_review import REVIEW_CONFIRMED, REVIEW_PENDING
 
 
 log = get_logger("database.sqlite")
+_UNSET = object()
 
 # Compatibility contract: ``score`` remains the effective score for older
 # integrations. Pending records mirror the AI suggestion; confirmed records
@@ -351,12 +352,14 @@ class Database:
         max_score: str | None = None,
         submitted_text: str | None = None,
         raw_ai_report: str | None = None,
-        minimum_words: int | None = None,
+        minimum_words: Any = _UNSET,
     ) -> None:
         fields: dict[str, Any] = {}
-        for key, value in (("submitted_text", submitted_text), ("raw_ai_report", raw_ai_report), ("minimum_words", minimum_words)):
+        for key, value in (("submitted_text", submitted_text), ("raw_ai_report", raw_ai_report)):
             if value is not None:
                 fields[key] = value
+        if minimum_words is not _UNSET:
+            fields["minimum_words"] = minimum_words
         if student_name is not None:
             display_name = student_name.strip() or None
             fields["student_name"] = display_name

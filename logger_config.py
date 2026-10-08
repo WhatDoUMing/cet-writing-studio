@@ -13,12 +13,12 @@ def setup_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -> Pa
 
     The function is idempotent enough to call more than once: it creates a
     root logger with the application name so callers can retrieve it through
-    ``logging.getLogger("FJEnglishAIGrader")``.
+    ``logging.getLogger("CETWritingStudio")``.
     """
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    logger = logging.getLogger("FJEnglishAIGrader")
+    logger = logging.getLogger("CETWritingStudio")
     if logger.handlers:
         return log_dir
 
@@ -48,4 +48,4 @@ def setup_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -> Pa
 
 def get_logger(name: str) -> logging.Logger:
     """Return a child logger under the application namespace."""
-    return logging.getLogger(f"FJEnglishAIGrader.{name}")
+    return logging.getLogger(f"CETWritingStudio.{name}")

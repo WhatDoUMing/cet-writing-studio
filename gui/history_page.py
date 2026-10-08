@@ -45,6 +45,7 @@ class HistoryPage(QWidget):
         super().__init__(parent)
         self.records: list[dict[str, Any]] = []
         self.usage_mode = "student"
+        self.trend_level = "CET-4"
         self._groups: dict[str, dict[str, Any]] = {}
         self._group_metadata: dict[str, dict[str, Any]] = {}
         self.total_count = 0
@@ -468,6 +469,7 @@ class HistoryPage(QWidget):
         sign = "+" if delta >= 0 else ""
         count = len(trend)
         self.trend_label.setText(
+            f"{self.trend_level} · {'AI 练习分' if self.usage_mode == 'student' else '教师确认分'} · "
             f"共 {count} 次评分。首次 {first:g} 分，最近 {last:g} 分，"
             f"提升 {sign}{delta:g} 分。"
         )

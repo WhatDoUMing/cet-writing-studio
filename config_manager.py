@@ -37,7 +37,7 @@ class ConfigManager:
         )
         self.user_path = self.project_root / "config" / "settings.json"
         self._data: dict[str, Any] = {}
-        self._secrets = SecretStore(self.project_root / "config")
+        self._secrets = SecretStore(self.project_root / "config" / "CETWritingStudio")
         self.load()
 
     def load(self) -> dict[str, Any]:

@@ -28,26 +28,35 @@ def word_count(text: str) -> int:
 
 def length_requirement(level: str, question: str = "", minimum: int | None = None) -> tuple[int, int | None]:
     validate_level(level)
-    if minimum is not None:
-        if type(minimum) is not int or not 1 <= minimum <= 5000:
-            raise ValueError("题目最低词数须为 1—5000 的整数")
-        return minimum, None
+    if minimum is not None and (type(minimum) is not int or not 1 <= minimum <= 5000):
+        raise ValueError("题目最低词数须为 1—5000 的整数")
     # Accept explicit English/Chinese ranges and minimum instructions.
-    match = re.search(r"(\d{2,4})\s*(?:-|—|–|to|至|到)\s*(\d{2,4})\s*(?:words?|词)", question, re.I)
+    unit = r"(?:words?|个?单词|词)"
+    match = re.search(r"(\d{2,4})\s*(?:-|—|–|to|and|至|到)\s*(\d{2,4})\s*" + unit, question, re.I)
     if match:
         lo, hi = map(int, match.groups())
         if lo > hi:
             raise ValueError("题目词数区间顺序错误")
+        lo = minimum if minimum is not None else lo
+        if lo > hi:
+            raise ValueError("指定最低词数高于题目上限")
         return lo, hi
-    match = re.search(r"(?:at least|no less than|not less than|不少于|至少|最低)\s*(\d{2,4})\s*(?:words?|词)", question, re.I)
-    if match:
-        return int(match.group(1)), None
-    return (120 if level == "CET-4" else 150), None
+    match = re.search(r"(?:at least|no less than|not less than|不少于|至少|最低)\s*(\d{2,4})\s*" + unit, question, re.I)
+    low = int(match.group(1)) if match else (120 if level == "CET-4" else 150)
+    upper = re.search(r"(?:no more than|not more than|at most|不超过|最多|至多)\s*(\d{2,4})\s*" + unit, question, re.I)
+    high = int(upper.group(1)) if upper else None
+    if minimum is not None:
+        low = minimum
+    if high is not None and low > high:
+        if minimum is not None or match:
+            raise ValueError("指定最低词数高于题目上限")
+        low = 0
+    return low, high
 
 def length_notice(text: str, level: str, question: str = "", minimum: int | None = None) -> str:
     count = word_count(text)
     low, high = length_requirement(level, question, minimum)
-    target = f"{low}—{high} 词" if high is not None else f"至少 {low} 词"
+    target = (f"不超过 {high} 词" if low == 0 else f"{low}—{high} 词") if high is not None else f"至少 {low} 词"
     state = "低于要求" if count < low else "超过题目上限" if high and count > high else "达到长度要求"
     return f"本地词数 {count}  ·  {level} / {target}  ·  {state}；长度纳入整体评判"
 

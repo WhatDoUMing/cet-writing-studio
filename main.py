@@ -27,7 +27,6 @@ def resource_root() -> Path:
 
 def main() -> int:
     root = project_root()
-    preload_torch_dlls()
 
     from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication

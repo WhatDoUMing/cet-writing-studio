@@ -18,6 +18,7 @@ config/secrets.dpapi
 config/secrets.dpapi.*
 config/secrets.dpapi~
 config/.secrets.dpapi.*
+config/CETWritingStudio/
 models/*
 !models/.gitkeep
 work/

@@ -158,7 +158,7 @@ class SettingsPage(QWidget):
         self.theme_combo.addItems(["浅色", "深色"])
         layout.addWidget(self._field("主题", self.theme_combo))
 
-        self.reduce_motion_check = QCheckBox("减少动效（关闭页面淡入与按钮反馈）")
+        self.reduce_motion_check = QCheckBox("减少动态效果（关闭按钮反馈、缩短主题反馈）")
         layout.addWidget(self.reduce_motion_check)
 
         actions = QHBoxLayout()

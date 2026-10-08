@@ -247,3 +247,19 @@ class SetupPage(QWidget):
         self.mode_notice.setText(
             f"当前为{essay_type}模式（{max_score} 分）{suffix}"
         )
+
+    def capture_draft(self):
+        return {"student_name": self.student_name.text(), "question": self.question_edit.toPlainText(),
+                "image_path": self._student_image_path, "excellent_path": self._excellent_path,
+                "minimum_words": self.minimum_words.value(), "manual": self.manual_mode_radio.isChecked()}
+
+    def restore_draft(self, data):
+        self.student_name.setText(data.get("student_name", ""))
+        self.question_edit.setPlainText(data.get("question", ""))
+        self._student_image_path = data.get("image_path", "")
+        self._excellent_path = data.get("excellent_path", "")
+        self.image_label.setText(self._student_image_path or "尚未选择图片")
+        self.example_label.setText(self._excellent_path or "可选：上传本考试级别优秀作文作为评分参考")
+        self.minimum_words.setValue(data.get("minimum_words", 0) or 0)
+        (self.manual_mode_radio if data.get("manual", True) else self.ocr_mode_radio).setChecked(True)
+        self._update_input_mode_controls()

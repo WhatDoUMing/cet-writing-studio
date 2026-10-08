@@ -372,7 +372,8 @@ class PressFeedbackFilter(QObject):
 
 
 def _animate_press(button: QPushButton, target: float, duration: int) -> None:
-    if _shutting_down:
+    if _shutting_down or _reduce_motion:
+        cancel_motion(button)
         return
     for animation in _animations(button):
         _detach(animation)

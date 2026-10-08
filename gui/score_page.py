@@ -148,7 +148,7 @@ class ScorePage(QWidget):
         review_actions.addWidget(self.confirm_score_btn)
         review_actions.addStretch(1)
         review_layout.addLayout(review_actions)
-        self.diagnosis_layout.addWidget(self.review_frame)
+        self.body_layout.addWidget(self.review_frame)
 
         self.correction_frame = QFrame()
         correction_layout = QVBoxLayout(self.correction_frame)
@@ -273,12 +273,6 @@ class ScorePage(QWidget):
             revealed.append(table)
 
         comment = str(report.get("overall_comment", "")).strip()
-        if comment:
-            comment_section = self._section(
-                "AI建议评语", self._wrap_label(comment)
-            )
-            self.report_layout.addWidget(comment_section)
-            revealed.append(comment_section)
         self.teacher_comment_edit.setPlainText(comment)
         self.review_status.setText("待教师确认：AI 分数仅为批改建议。")
         self.report_layout.addStretch(1)
@@ -405,9 +399,10 @@ class ScorePage(QWidget):
         return self._section(title, self._wrap_label(text))
 
     def _table_section(self, title: str, rows: list[dict[str, Any]]) -> QWidget:
-        headers = list(rows[0].keys()) if rows else []
+        headers = ["sentence", "problem", "correct"] if title == "语法错误" else ["original", "rewrite", "reason"]
         table = QTableWidget(len(rows), len(headers))
-        table.setHorizontalHeaderLabels(headers)
+        names = {"sentence": "原句", "problem": "问题", "correct": "纠正", "original": "原句", "rewrite": "改写", "reason": "说明"}
+        table.setHorizontalHeaderLabels([names[key] for key in headers])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-log = logging.getLogger("FJEnglishAIGrader.ocr.torch_preload")
+log = logging.getLogger("CETWritingStudio.ocr.torch_preload")
 
 
 def preload_torch_dlls() -> None:

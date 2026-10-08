@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QThreadPool, Qt
+from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -119,6 +120,12 @@ class MainWindow(QMainWindow):
             motion.install_press_feedback(application)
         self._build_ui()
         self._connect_signals()
+        self._shortcuts = []
+        for keys, action in (("Ctrl+1", lambda: self._leave_workflow(0)), ("Ctrl+2", self._open_new_setup),
+                             ("Ctrl+3", self._return_to_ocr), ("Ctrl+H", self._open_history), ("Ctrl+,", self._open_settings)):
+            shortcut = QShortcut(QKeySequence(keys), self)
+            shortcut.activated.connect(action)
+            self._shortcuts.append(shortcut)
         self._navigate(0)
 
     def _build_ui(self) -> None:
@@ -275,6 +282,7 @@ class MainWindow(QMainWindow):
         self._invalidate_jobs()
         self._begin_session({}, reuse_current=False)
         self._continue_session_from_setup = False
+        self.setup_page.restore_draft({})
         self._navigate(1)
 
     def _open_settings(self) -> None:
@@ -327,6 +335,7 @@ class MainWindow(QMainWindow):
         offset = 0 if reset else len(self.history_page.records)
         filters = self.history_page.current_filters()
         self.history_page.usage_mode = self.usage_mode
+        self.history_page.trend_level = filters.get("exam_level") or self.exam_level
         groups = self.db.list_essay_groups(search=search, **filters)
         valid_group_keys = {
             str(group.get("group_key", "")) for group in groups
@@ -1216,6 +1225,11 @@ class MainWindow(QMainWindow):
         )
         if not ok or not suggested.strip():
             return
+        try:
+            suggested = validate_teacher_score(suggested, "15")
+        except ValueError as exc:
+            QMessageBox.warning(self, "建议分数有误", str(exc))
+            return
         reason, ok = QInputDialog.getMultiLineText(
             self,
             "异议原因",
@@ -1286,7 +1300,7 @@ class MainWindow(QMainWindow):
         self._context_switching = True
         try:
             key = (self.usage_mode, self.exam_level)
-            self._context_drafts[key] = (dict(self._draft), self.ocr_page.get_text(), self.setup_page.question_edit.toPlainText())
+            self._context_drafts[key] = (dict(self._draft), self.ocr_page.get_text(), self.setup_page.capture_draft())
             on_report = self.stack.currentIndex() == 3 and bool(self._current_report) and new_level == self.exam_level
             self._invalidate_jobs()
             self.usage_mode, self.exam_level = new_mode, new_level
@@ -1301,10 +1315,10 @@ class MainWindow(QMainWindow):
                 if record.get("review_status") == "confirmed":
                     self.score_page.mark_confirmed(record)
             else:
-                draft, text, question = self._context_drafts.get((new_mode, new_level), ({}, "", ""))
+                draft, text, setup = self._context_drafts.get((new_mode, new_level), ({}, "", {}))
                 self._begin_session(draft, reuse_current=False)
                 self.ocr_page.set_text(text)
-                self.setup_page.question_edit.setPlainText(question)
+                self.setup_page.restore_draft(setup)
                 if self.stack.currentIndex() in (1, 2, 3):
                     self._navigate(2 if draft and text else 1)
                 elif self.stack.currentIndex() == 4:

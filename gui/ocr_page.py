@@ -66,9 +66,10 @@ class OCRPage(QWidget):
         title.setProperty("title", True)
         layout.addWidget(title)
 
-        subtitle = QLabel("左侧核对原图，右侧修改识别文本。波浪线表示系统建议检查的单词。")
-        subtitle.setProperty("subtitle", True)
-        layout.addWidget(subtitle)
+        self.subtitle = QLabel("核对并确认作文文本。波浪线表示系统建议检查的单词。")
+        self.subtitle.setProperty("subtitle", True)
+        self.subtitle.setWordWrap(True)
+        layout.addWidget(self.subtitle)
 
         self.length_label = QLabel()
         self.length_label.setWordWrap(True)
@@ -76,7 +77,8 @@ class OCRPage(QWidget):
         layout.addWidget(self.length_label)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._build_image_panel())
+        self.image_panel = self._build_image_panel()
+        splitter.addWidget(self.image_panel)
         splitter.addWidget(self._build_text_panel())
         splitter.setSizes([560, 640])
         layout.addWidget(splitter, 1)
@@ -162,6 +164,8 @@ class OCRPage(QWidget):
             self.clear_image()
             return
         self._current_image_path = str(image_path)
+        self.image_panel.show()
+        self.subtitle.setText("左侧核对原图，右侧修改识别文本，再确认原文进入评分。")
         try:
             with Image.open(self._current_image_path) as source:
                 image = ImageOps.exif_transpose(source).convert("RGB")
@@ -185,6 +189,8 @@ class OCRPage(QWidget):
         self.image_label.clear()
         self.image_label.setText(message)
         self.image_label.setToolTip("")
+        self.image_panel.hide()
+        self.subtitle.setText("粘贴或输入作文原文，检查词数与表达，再确认原文进入评分。")
 
     def set_text(self, text: str) -> None:
         self._spell_generation += 1
