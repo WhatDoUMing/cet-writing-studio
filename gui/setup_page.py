@@ -80,15 +80,15 @@ class SetupPage(QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(24)
         self.input_mode_group = QButtonGroup(self)
-        self.ocr_mode_radio = QRadioButton("上传图片并识别手写文本")
-        self.manual_mode_radio = QRadioButton("不识别，直接输入文本")
+        self.manual_mode_radio = QRadioButton("文本输入（推荐）")
+        self.ocr_mode_radio = QRadioButton("图片识别 / OCR（可选）")
         self.manual_mode_radio.setChecked(True)
-        self.input_mode_group.addButton(self.ocr_mode_radio)
         self.input_mode_group.addButton(self.manual_mode_radio)
-        input_layout.addWidget(self.ocr_mode_radio)
+        self.input_mode_group.addButton(self.ocr_mode_radio)
         input_layout.addWidget(self.manual_mode_radio)
+        input_layout.addWidget(self.ocr_mode_radio)
         input_layout.addStretch(1)
-        layout.addWidget(self._field("识别方式", input_frame))
+        layout.addWidget(self._field("作文输入方式", input_frame))
 
         self.question_edit = QTextEdit()
         self.question_edit.setPlaceholderText("请输入作文题目")
@@ -105,12 +105,11 @@ class SetupPage(QWidget):
         self.image_label.setWordWrap(True)
         self.pick_image_btn = QPushButton("选择学生作文图片")
         self.pick_image_btn.clicked.connect(self._pick_student_image)
-        layout.addWidget(
-            self._field(
-                "学生作文图片",
-                self._pair(self.image_label, self.pick_image_btn),
-            )
+        self.image_field = self._field(
+            "学生作文图片",
+            self._pair(self.image_label, self.pick_image_btn),
         )
+        layout.addWidget(self.image_field)
 
         self.example_label = QLabel("可选：上传优秀作文作为评分参考")
         self.example_label.setProperty("subtitle", True)
@@ -124,6 +123,7 @@ class SetupPage(QWidget):
         back_btn.clicked.connect(self.back_requested.emit)
         self.start_btn = QPushButton("开始识别")
         self.start_btn.setProperty("primary", True)
+        self.start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_btn.clicked.connect(self._emit_start)
         actions.addWidget(back_btn)
         actions.addStretch(1)
@@ -221,10 +221,11 @@ class SetupPage(QWidget):
 
     def _update_input_mode_controls(self, _button=None) -> None:
         manual_input = self.manual_mode_radio.isChecked()
+        self.image_field.setVisible(not manual_input)
         self.pick_image_btn.setEnabled(not manual_input)
         self.image_label.setEnabled(not manual_input)
         self.start_btn.setText(
-            "直接输入作文文本" if manual_input else "开始识别"
+            "继续：输入作文文本" if manual_input else "识别图片并确认文本"
         )
         self._update_mode_notice()
 

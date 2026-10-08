@@ -204,6 +204,11 @@ class MainWindow(QMainWindow):
             button = QPushButton(text)
             button.setProperty("nav", True)
             button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if index == 2:
+                button.setEnabled(False)
+                button.setCursor(Qt.CursorShape.ArrowCursor)
+                button.setToolTip("请先完成“开始写作”中的考试与题目设置。")
             if text == "历史记录":
                 button.clicked.connect(self._open_history)
             else:
@@ -273,8 +278,7 @@ class MainWindow(QMainWindow):
             self._open_new_setup()
             return
         if index == 2:
-            self._invalidate_jobs("grading")
-            self._navigate(2)
+            self._return_to_ocr()
             return
         self._leave_workflow(index)
 
@@ -299,12 +303,30 @@ class MainWindow(QMainWindow):
         self._navigate(1)
 
     def _return_to_ocr(self) -> None:
+        if not self.nav_buttons[2].isEnabled():
+            return
         self._invalidate_jobs("grading")
         self._navigate(2)
+
+    def _sync_text_navigation(self) -> None:
+        """Unlock confirmation only for a task with completed topic settings."""
+        ready = bool(str(self._draft.get("question", "")).strip())
+        if ready:
+            try:
+                validate_level(self._draft.get("essay_type", ""))
+                length_requirement(self._draft["essay_type"], self._draft["question"], self._draft.get("minimum_words"))
+            except ValueError:
+                ready = False
+        button = self.nav_buttons[2]
+        button.setEnabled(ready)
+        button.setCursor(Qt.CursorShape.PointingHandCursor if ready else Qt.CursorShape.ArrowCursor)
+        button.setToolTip("编辑并确认当前作文原文。" if ready else "请先完成“开始写作”中的考试与题目设置。")
 
     def _navigate(self, index: int) -> None:
         mapping = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5}
         page_index = mapping.get(index, 0)
+        if page_index == 2 and not self.nav_buttons[2].isEnabled():
+            return
         if page_index == 4:
             self._open_history()
             return
@@ -378,7 +400,7 @@ class MainWindow(QMainWindow):
         )
         self._begin_session(draft, reuse_current=reuse_current)
         self._continue_session_from_setup = False
-        if self._draft.get("input_mode", "ocr") == "manual":
+        if self._draft.get("input_mode", "manual") == "manual":
             self._active_ocr_engine = None
             self.ocr_page.clear_image()
             self.ocr_page.set_text("")
@@ -414,6 +436,7 @@ class MainWindow(QMainWindow):
         self._active_jobs.clear()
         self._draft = dict(draft)
         self._draft.setdefault("usage_mode", self.usage_mode)
+        self._sync_text_navigation()
         self.ocr_page.set_context(draft.get("essay_type") or self.exam_level, draft.get("question", ""), draft.get("minimum_words"))
         self._reference_text = ""
         self._active_ocr_engine = None
@@ -627,7 +650,7 @@ class MainWindow(QMainWindow):
         log.warning("Reference essay recognition failed: %s", message)
 
     def _restart_recognition(self) -> None:
-        if self._draft.get("input_mode", "ocr") == "manual":
+        if self._draft.get("input_mode", "manual") == "manual":
             return
         if not self._draft.get("image_path"):
             return
@@ -727,7 +750,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "缺少作文文本",
-                "请先完成手写文本识别或填写作文文本。",
+                "请先粘贴或输入作文文本，也可选择图片识别。",
             )
             return
         if not str(self._draft.get("question", "")).strip():

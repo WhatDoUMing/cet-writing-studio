@@ -120,6 +120,57 @@ def test_keyboard_navigation_is_immediate(tmp_path):
     assert w.stack.currentWidget() is w.setup_page
     w.close()
 
+
+def test_confirmation_requires_completed_topic_step(tmp_path):
+    from PyQt6.QtCore import Qt
+    w, db = make_window(tmp_path)
+    w.show()
+    APP.processEvents()
+    nav = w.nav_buttons[2]
+    assert not nav.isEnabled()
+    w._navigate_from_sidebar(2)
+    QTest.keyClick(w, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)
+    assert w.stack.currentWidget() is w.home_page
+
+    w._open_new_setup()
+    assert w.setup_page.manual_mode_radio.isChecked()
+    assert w.setup_page.image_field.isHidden()
+    w.setup_page.question_edit.setPlainText("   ")
+    w.setup_page.start_btn.click()
+    assert not nav.isEnabled()
+    w.setup_page.question_edit.setPlainText("Discuss the benefits of reading.")
+    assert not nav.isEnabled()
+    w.setup_page.start_btn.click()
+    assert nav.isEnabled()
+    assert w.stack.currentWidget() is w.ocr_page
+    assert w.thread_pool.workers == []
+    assert w.ocr_page.re_btn.isHidden()
+    assert w.ocr_page.image_panel.isHidden()
+
+    w._leave_workflow(0)
+    QTest.keyClick(w, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)
+    assert w.stack.currentWidget() is w.ocr_page
+    w._open_new_setup()
+    assert not nav.isEnabled()
+    QTest.keyClick(w, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)
+    assert w.stack.currentWidget() is w.setup_page
+    w.close()
+
+
+def test_confirmation_unlock_follows_exam_and_mode_drafts(tmp_path):
+    w, db = make_window(tmp_path)
+    w._start_recognition(draft("A", "Discuss reading."))
+    assert w.nav_buttons[2].isEnabled()
+    w.exam_combo.setCurrentText("CET-6")
+    assert not w.nav_buttons[2].isEnabled()
+    w.exam_combo.setCurrentText("CET-4")
+    assert w.nav_buttons[2].isEnabled()
+    w.mode_combo.setCurrentIndex(1)
+    assert not w.nav_buttons[2].isEnabled()
+    w.mode_combo.setCurrentIndex(0)
+    assert w.nav_buttons[2].isEnabled()
+    w.close()
+
 def test_new_config_and_credentials_namespace(tmp_path):
     from pathlib import Path
     config=ConfigManager(tmp_path,resource_root=Path(__file__).parents[1])

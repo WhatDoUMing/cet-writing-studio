@@ -8,7 +8,7 @@ import tempfile
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PyQt6.QtWidgets import QApplication, QScrollArea
+from PyQt6.QtWidgets import QApplication, QScrollArea, QPushButton
 from PyQt6.QtTest import QTest
 from config_manager import ConfigManager
 from database.sqlite import Database
@@ -57,8 +57,13 @@ def main():
             w.grab().save(str(args.output/name))
         app.setStyleSheet(get_app_style("light"))
         w._navigate(0);capture("home-light.png")
+        start=w.home_page.findChildren(QPushButton)[0]
+        QTest.mouseMove(start,start.rect().center());capture("home-hover.png")
+        QTest.mouseMove(w.nav_buttons[2],w.nav_buttons[2].rect().center());capture("locked-nav-hover.png")
         w._open_new_setup();w.setup_page.question_edit.setPlainText(db.get_essay(record_id)["question"])
         capture("setup-light.png")
+        w.setup_page.ocr_mode_radio.click();capture("setup-ocr-option.png")
+        w.setup_page.manual_mode_radio.click()
         w._start_recognition({"student_name":"练习示例","essay_type":"CET-4","question":db.get_essay(record_id)["question"],"input_mode":"manual"})
         w.ocr_page.set_text(TEXT);capture("text-confirmation.png")
         w._open_record_report(record_id);capture("student-report.png")
@@ -73,6 +78,7 @@ def main():
         w.mode_combo.setCurrentIndex(0);capture("student-report-dark.png")
         w._open_history();capture("history-dark.png")
         w._open_settings();capture("settings-dark.png")
+        w._open_new_setup();capture("setup-dark.png")
         w.close()
     print("Native screenshots rendered from synthetic fixtures; no live AI calls.")
 

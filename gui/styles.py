@@ -201,18 +201,10 @@ QFrame[card="true"] {
     border-radius: 12px;
 }
 
-QFrame[card="true"]:hover {
-    background: %(grid)s;
-}
-
 QFrame[tile="true"] {
     background: %(field)s;
     border: 1px solid %(line)s;
     border-radius: 10px;
-}
-
-QFrame[tile="true"]:hover {
-    background: %(grid)s;
 }
 
 /* ---------------------------------------------------------------- hero --- */
@@ -312,9 +304,10 @@ QPushButton {
     font-size: 14px;
 }
 
-QPushButton:hover {
+QPushButton:enabled:hover {
     background: %(hover)s;
-    border-color: %(line)s;
+    color: %(accent)s;
+    border-color: %(accent)s;
 }
 
 QPushButton:focus {
@@ -340,8 +333,9 @@ QPushButton[primary="true"] {
     font-weight: 600;
 }
 
-QPushButton[primary="true"]:hover {
+QPushButton[primary="true"]:enabled:hover {
     background: %(accent_hover)s;
+    color: %(accent_text)s;
     border-color: %(accent_hover)s;
 }
 
@@ -368,8 +362,9 @@ QPushButton[danger="true"] {
     border-radius: 8px;
 }
 
-QPushButton[danger="true"]:hover {
+QPushButton[danger="true"]:enabled:hover {
     background: %(danger_soft)s;
+    color: %(danger)s;
     border-color: %(danger_soft)s;
 }
 
@@ -402,9 +397,20 @@ QPushButton[nav="true"] {
     min-height: 18px;
 }
 
-QPushButton[nav="true"]:hover {
+QPushButton[nav="true"]:enabled:hover {
     background: %(hover)s;
-    color: %(text)s;
+    color: %(accent)s;
+}
+
+QPushButton[success="true"]:enabled:hover {
+    background: %(accent_hover)s;
+    color: %(accent_text)s;
+    border-color: %(accent_hover)s;
+}
+
+QPushButton[nav="true"]:enabled:focus {
+    color: %(accent)s;
+    text-decoration: underline;
 }
 
 QPushButton[nav="true"]:checked {
@@ -427,6 +433,12 @@ QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox {
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus,
 QComboBox:focus, QSpinBox:focus {
     border: 2px solid %(accent)s;
+}
+
+QPushButton[nav="true"]:disabled {
+    background: transparent;
+    color: %(disabled_text)s;
+    font-weight: 400;
 }
 
 QLineEdit[error="true"], QPlainTextEdit[error="true"],

@@ -84,17 +84,18 @@ class OCRPage(QWidget):
         layout.addWidget(splitter, 1)
 
         actions = QHBoxLayout()
-        back_btn = QPushButton("返回设置")
+        back_btn = QPushButton("返回题目设置")
         back_btn.clicked.connect(self.back_requested.emit)
         self.re_btn = QPushButton("重新识别")
+        self.re_btn.setVisible(False)
         self.re_btn.clicked.connect(self.re_recognize_requested.emit)
         self.skip_btn = QPushButton("确认原文并评分")
+        self.skip_btn.setProperty("primary", True)
         self.skip_btn.clicked.connect(self._confirm)
         self.fix_btn = QPushButton("一键修正明显错误")
         self.fix_btn.clicked.connect(self._apply_safe_fixes)
         self.fix_btn.setVisible(False)
         self.check_btn = QPushButton("确定修改并拼写检查")
-        self.check_btn.setProperty("primary", True)
         self.check_btn.clicked.connect(self._handle_check)
         actions.addWidget(back_btn)
         actions.addWidget(self.re_btn)
@@ -126,12 +127,12 @@ class OCRPage(QWidget):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        header = QLabel("识别文本（可直接修改）")
-        header.setProperty("section", True)
-        layout.addWidget(header)
+        self.text_header = QLabel("作文原文（可直接编辑）")
+        self.text_header.setProperty("section", True)
+        layout.addWidget(self.text_header)
 
         self.text_edit = QPlainTextEdit()
-        self.text_edit.setPlaceholderText("等待识别结果...")
+        self.text_edit.setPlaceholderText("在这里粘贴或输入英文作文原文…")
         layout.addWidget(self.text_edit, 1)
 
         self.text_edit.textChanged.connect(self._refresh_length)
@@ -165,6 +166,9 @@ class OCRPage(QWidget):
             return
         self._current_image_path = str(image_path)
         self.image_panel.show()
+        self.re_btn.show()
+        self.text_header.setText("识别文本（可直接修改）")
+        self.text_edit.setPlaceholderText("识别完成后，请核对并修改作文原文…")
         self.subtitle.setText("左侧核对原图，右侧修改识别文本，再确认原文进入评分。")
         try:
             with Image.open(self._current_image_path) as source:
@@ -190,6 +194,9 @@ class OCRPage(QWidget):
         self.image_label.setText(message)
         self.image_label.setToolTip("")
         self.image_panel.hide()
+        self.re_btn.hide()
+        self.text_header.setText("作文原文（可直接编辑）")
+        self.text_edit.setPlaceholderText("在这里粘贴或输入英文作文原文…")
         self.subtitle.setText("粘贴或输入作文原文，检查词数与表达，再确认原文进入评分。")
 
     def set_text(self, text: str) -> None:
@@ -222,7 +229,7 @@ class OCRPage(QWidget):
 
     def _refresh_controls(self) -> None:
         disabled = self._busy or self._spell_check_running
-        self.re_btn.setEnabled(not disabled)
+        self.re_btn.setEnabled(not disabled and bool(self._current_image_path))
         self.skip_btn.setEnabled(not disabled)
         self.fix_btn.setEnabled(not disabled and self.fix_btn.isVisible())
         self.check_btn.setEnabled(not disabled)
@@ -431,7 +438,7 @@ class OCRPage(QWidget):
     def _confirm(self) -> None:
         text = self.get_text()
         if not text:
-            self.hint_label.setText("请先完成手写文本识别或填写作文文本。")
+            self.hint_label.setText("请先粘贴或输入作文文本，也可选择图片识别。")
             return
         self.confirm_requested.emit(text)
 

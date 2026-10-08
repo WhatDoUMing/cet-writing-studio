@@ -22,7 +22,7 @@ class HomePage(QWidget):
         layout.setContentsMargins(36, 36, 36, 32)
         layout.setSpacing(22)
         for text, prop in (("WRITE · REFLECT · IMPROVE", "eyebrow"), ("让每一次写作，都有进步。", "title"),
-                           ("四六级作文练习与教师复核，共用一份清晰、可追溯的报告。", "subtitle")):
+                           ("输入作文，获得四六级练习与教师复核报告；图片识别作为可选入口。", "subtitle")):
             label = QLabel(text)
             label.setProperty(prop, True)
             label.setWordWrap(True)
@@ -42,12 +42,13 @@ class HomePage(QWidget):
             caption.setMinimumHeight(60)
             button = QPushButton("开始写作  →")
             button.setProperty("primary", True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda _=False, l=level: self.exam_requested.emit(l))
             for widget in (heading, caption, button):
                 box.addWidget(widget)
             entries.addWidget(card)
         layout.addLayout(entries)
-        flow = QLabel("01  考试与题目   →   02  输入或识别   →   03  文本确认   →   04  评分报告")
+        flow = QLabel("01  考试与题目   →   02  文本输入（可选 OCR）   →   03  文本确认   →   04  评分报告")
         flow.setProperty("subtitle", True)
         flow.setWordWrap(True)
         layout.addWidget(flow)

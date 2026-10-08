@@ -127,6 +127,7 @@ def test_main_window_initializes(tmp_path: Path) -> None:
             "essay_type": "CET-4",
             "max_score": "15",
             "question": "测试题目",
+            "input_mode": "ocr",
             "image_path": str(image_path),
             "excellent_path": "",
         }
