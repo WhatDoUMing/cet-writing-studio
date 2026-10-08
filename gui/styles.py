@@ -1,8 +1,8 @@
-"""Apple-inspired Qt style sheet for the desktop grading UI.
+"""Editorial-inspired Qt style sheet for the desktop grading UI.
 
-The palette follows apple.com: a neutral canvas, generous spacing, pill-shaped
-controls and the system blue accent. The dark theme mirrors the apple.com dark
-surfaces instead of tinting the light palette, so both themes stay legible.
+The interface uses a warm paper-like canvas, ink-colored text, a restrained
+teal accent, and consistent grid-like borders. The dark theme keeps the same
+hierarchy with low-glare surfaces and a softer teal accent.
 
 Only two entry points are public:
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-SPELL_HINT_COLOR = "#ff3b30"
+SPELL_HINT_COLOR = "#b83f36"
 
 FONT_STACK = '"Microsoft YaHei", "Segoe UI", "Arial"'
 
@@ -34,61 +34,65 @@ def prepare_fonts(application) -> None:
     application.setFont(QFont("Microsoft YaHei" if os.name == "nt" else "Sans Serif", 10))
 
 LIGHT: dict[str, str] = {
-    "canvas": "#ffffff",
-    "surface": "#f5f5f7",
-    "text": "#1d1d1f",
-    "muted": "#6e6e73",
-    "line": "#d2d2d7",
-    "accent": "#0071e3",
-    "accent_hover": "#0077ed",
-    "accent_press": "#006edb",
-    "accent_soft": "rgba(0, 113, 227, 0.12)",
-    "hover": "rgba(0, 0, 0, 0.05)",
-    "selection": "rgba(0, 113, 227, 0.18)",
-    "danger": "#e30000",
-    "danger_soft": "rgba(227, 0, 0, 0.08)",
-    "success": "#00a05a",
-    "field": "#ffffff",
-    "grid": "#e8e8ed",
-    "scroll": "#c7c7cc",
-    "scroll_hover": "#a1a1a6",
-    "disabled_text": "#a1a1a6",
-    "disabled_bg": "#f5f5f7",
-    "tooltip_bg": "#ffffff",
-    "hero_bg": "#f5f7fb",
-    "hero_text": "#17243b",
-    "hero_muted": "#86868b",
-    "hero_line": "rgba(255, 255, 255, 0.28)",
-    "hero_hover": "rgba(255, 255, 255, 0.12)",
+    "canvas": "#f5f4ef",
+    "surface": "#eeede7",
+    "text": "#202a26",
+    "muted": "#66736d",
+    "line": "#d5d8d0",
+    "accent": "#28675b",
+    "accent_text": "#ffffff",
+    "accent_hover": "#20584e",
+    "accent_press": "#194c43",
+    "accent_soft": "rgba(40, 103, 91, 0.12)",
+    "hover": "rgba(32, 42, 38, 0.055)",
+    "selection": "rgba(40, 103, 91, 0.18)",
+    "danger": "#b83f36",
+    "danger_soft": "rgba(184, 63, 54, 0.09)",
+    "success": "#28745c",
+    "success_text": "#ffffff",
+    "field": "#fffefa",
+    "grid": "#e5e7df",
+    "scroll": "#b9c0b9",
+    "scroll_hover": "#909b93",
+    "disabled_text": "#929c95",
+    "disabled_bg": "#eeede7",
+    "tooltip_bg": "#fffefa",
+    "hero_bg": "#e8eee8",
+    "hero_text": "#203b33",
+    "hero_muted": "#5b7068",
+    "hero_line": "rgba(32, 59, 51, 0.18)",
+    "hero_hover": "rgba(32, 59, 51, 0.07)",
 }
 
 DARK: dict[str, str] = {
-    "canvas": "#000000",
-    "surface": "#1d1d1f",
-    "text": "#f5f5f7",
-    "muted": "#86868b",
-    "line": "#424245",
-    "accent": "#2997ff",
-    "accent_hover": "#51a9ff",
-    "accent_press": "#1f8bff",
-    "accent_soft": "rgba(41, 151, 255, 0.18)",
-    "hover": "rgba(255, 255, 255, 0.07)",
-    "selection": "rgba(41, 151, 255, 0.30)",
-    "danger": "#ff453a",
-    "danger_soft": "rgba(255, 69, 58, 0.14)",
-    "success": "#30d158",
-    "field": "#1d1d1f",
-    "grid": "#2c2c2e",
-    "scroll": "#48484a",
-    "scroll_hover": "#636366",
-    "disabled_text": "#6e6e73",
-    "disabled_bg": "#1d1d1f",
-    "tooltip_bg": "#1d1d1f",
-    "hero_bg": "#1d1d1f",
-    "hero_text": "#f5f5f7",
-    "hero_muted": "#a1a1a6",
-    "hero_line": "rgba(255, 255, 255, 0.24)",
-    "hero_hover": "rgba(255, 255, 255, 0.10)",
+    "canvas": "#191e1b",
+    "surface": "#222a26",
+    "text": "#e8eee9",
+    "muted": "#a1aea6",
+    "line": "#3b4841",
+    "accent": "#83b9a8",
+    "accent_text": "#17231d",
+    "accent_hover": "#9acbbb",
+    "accent_press": "#6fa894",
+    "accent_soft": "rgba(131, 185, 168, 0.17)",
+    "hover": "rgba(232, 238, 233, 0.07)",
+    "selection": "rgba(131, 185, 168, 0.26)",
+    "danger": "#f08a7e",
+    "danger_soft": "rgba(240, 138, 126, 0.15)",
+    "success": "#83c4a5",
+    "success_text": "#173127",
+    "field": "#202723",
+    "grid": "#2b3530",
+    "scroll": "#526159",
+    "scroll_hover": "#6b7c71",
+    "disabled_text": "#758179",
+    "disabled_bg": "#242d28",
+    "tooltip_bg": "#26302b",
+    "hero_bg": "#27352e",
+    "hero_text": "#edf3ee",
+    "hero_muted": "#bdc9c1",
+    "hero_line": "rgba(237, 243, 238, 0.20)",
+    "hero_hover": "rgba(237, 243, 238, 0.09)",
 }
 
 _TEMPLATE = """
@@ -116,6 +120,11 @@ QFrame#sidebar {
     background: %(surface)s;
     border: 0;
     border-right: 1px solid %(line)s;
+}
+
+QFrame#workspaceHeader {
+    background: %(canvas)s;
+    border-bottom: 1px solid %(line)s;
 }
 
 /* --------------------------------------------------------------- type ---- */
@@ -173,8 +182,8 @@ QLabel[tag="true"] {
     background: %(accent_soft)s;
     color: %(accent)s;
     border: 0;
-    border-radius: 11px;
-    padding: 4px 12px;
+    border-radius: 6px;
+    padding: 3px 9px;
     font-size: 13px;
     font-weight: 600;
 }
@@ -188,8 +197,8 @@ QFrame#sidebar QLabel#brand {
 /* --------------------------------------------------------------- cards --- */
 QFrame[card="true"] {
     background: %(surface)s;
-    border: 1px solid transparent;
-    border-radius: 18px;
+    border: 1px solid %(line)s;
+    border-radius: 12px;
 }
 
 QFrame[card="true"]:hover {
@@ -197,9 +206,9 @@ QFrame[card="true"]:hover {
 }
 
 QFrame[tile="true"] {
-    background: %(surface)s;
-    border: 1px solid transparent;
-    border-radius: 14px;
+    background: %(field)s;
+    border: 1px solid %(line)s;
+    border-radius: 10px;
 }
 
 QFrame[tile="true"]:hover {
@@ -297,8 +306,8 @@ QPushButton {
     background: %(field)s;
     color: %(text)s;
     border: 1px solid %(line)s;
-    border-radius: 18px;
-    padding: 9px 20px;
+    border-radius: 8px;
+    padding: 8px 16px;
     min-height: 20px;
     font-size: 14px;
 }
@@ -306,6 +315,11 @@ QPushButton {
 QPushButton:hover {
     background: %(hover)s;
     border-color: %(line)s;
+}
+
+QPushButton:focus {
+    background: %(accent_soft)s;
+    border-color: %(accent)s;
 }
 
 QPushButton:pressed {
@@ -320,15 +334,20 @@ QPushButton:disabled {
 
 QPushButton[primary="true"] {
     background: %(accent)s;
-    color: #ffffff;
+    color: %(accent_text)s;
     border: 1px solid %(accent)s;
-    border-radius: 18px;
+    border-radius: 8px;
     font-weight: 600;
 }
 
 QPushButton[primary="true"]:hover {
     background: %(accent_hover)s;
     border-color: %(accent_hover)s;
+}
+
+QPushButton[primary="true"]:focus {
+    background: %(accent_hover)s;
+    border: 2px solid %(text)s;
 }
 
 QPushButton[primary="true"]:pressed {
@@ -346,7 +365,7 @@ QPushButton[danger="true"] {
     background: %(field)s;
     color: %(danger)s;
     border: 1px solid %(line)s;
-    border-radius: 18px;
+    border-radius: 8px;
 }
 
 QPushButton[danger="true"]:hover {
@@ -356,9 +375,9 @@ QPushButton[danger="true"]:hover {
 
 QPushButton[success="true"] {
     background: %(success)s;
-    color: #ffffff;
+    color: %(success_text)s;
     border: 1px solid %(success)s;
-    border-radius: 18px;
+    border-radius: 8px;
     font-weight: 600;
 }
 
@@ -399,15 +418,21 @@ QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox {
     background: %(field)s;
     color: %(text)s;
     border: 1px solid %(line)s;
-    border-radius: 12px;
-    padding: 9px 12px;
+    border-radius: 8px;
+    padding: 8px 11px;
     selection-background-color: %(selection)s;
     selection-color: %(text)s;
 }
 
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus,
 QComboBox:focus, QSpinBox:focus {
-    border: 1px solid %(accent)s;
+    border: 2px solid %(accent)s;
+}
+
+QLineEdit[error="true"], QPlainTextEdit[error="true"],
+QTextEdit[error="true"], QComboBox[error="true"], QSpinBox[error="true"] {
+    border: 1px solid %(danger)s;
+    background: %(danger_soft)s;
 }
 
 QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled,
@@ -426,7 +451,7 @@ QComboBox QAbstractItemView {
     background: %(field)s;
     color: %(text)s;
     border: 1px solid %(line)s;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 6px;
     outline: 0;
     selection-background-color: %(accent_soft)s;
@@ -436,7 +461,7 @@ QComboBox QAbstractItemView {
 /* -------------------------------------------------------------- tables --- */
 QTableWidget, QTableView {
     background: %(field)s;
-    alternate-background-color: %(field)s;
+    alternate-background-color: %(surface)s;
     border: 1px solid %(line)s;
     border-radius: 14px;
     gridline-color: %(grid)s;
@@ -474,6 +499,10 @@ QRadioButton {
     color: %(text)s;
     spacing: 10px;
     padding: 4px 0;
+}
+
+QRadioButton:focus, QCheckBox:focus {
+    color: %(accent)s;
 }
 
 QRadioButton::indicator {
