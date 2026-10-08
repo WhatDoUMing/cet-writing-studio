@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
+from PyQt6.QtCore import QThreadPool, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,7 +24,7 @@ from ocr.online_engine import (
     ONLINE_OCR_PRESETS,
     get_online_ocr_preset,
 )
-from gui.workers import BalanceWorker
+from gui.workers import BalanceWorker, ModelListWorker
 
 
 class SettingsPage(QWidget):
@@ -38,6 +38,10 @@ class SettingsPage(QWidget):
         self._provider_models: dict[str, str] = {}
         self._loading_provider = False
         self._balance_workers: list[BalanceWorker] = []
+        self._model_workers: list[ModelListWorker] = []
+        self._model_generations = {"scoring": 0, "ocr": 0}
+        self._model_pending = {"scoring": False, "ocr": False}
+        self._model_catalogs = {}
         self._build_ui()
         self.load_values()
 
@@ -86,8 +90,16 @@ class SettingsPage(QWidget):
         api_note.setWordWrap(True)
         layout.addWidget(api_note)
 
-        self.model_edit = QLineEdit()
-        layout.addWidget(self._field("模型名称", self.model_edit))
+        self.model_combo = self._editable_models("评分模型名称")
+        self.model_edit = self.model_combo.lineEdit()
+        self.models_btn = QPushButton("获取模型列表")
+        self.models_btn.clicked.connect(lambda: self._fetch_models("scoring"))
+        layout.addWidget(self._field("模型名称", self._pair(self.model_combo, self.models_btn)))
+        self.models_status = QLabel("可在线获取并选择，也可手动输入。评分请选择文字对话模型。")
+        self.models_status.setProperty("subtitle", True)
+        self.models_status.setWordWrap(True)
+        layout.addWidget(self.models_status)
+        self.api_key_edit.textChanged.connect(lambda: self._model_key_changed("scoring"))
 
         self.ocr_mode_combo = QComboBox()
         self.ocr_mode_combo.addItem("在线手写文本识别（推荐）", "online")
@@ -114,15 +126,23 @@ class SettingsPage(QWidget):
         )
         layout.addWidget(self.online_ocr_provider_field)
 
-        self.online_ocr_model_edit = QLineEdit()
+        self.online_ocr_model_combo = self._editable_models("在线 OCR 模型名称")
+        self.online_ocr_model_edit = self.online_ocr_model_combo.lineEdit()
+        self.ocr_models_btn = QPushButton("获取模型列表")
+        self.ocr_models_btn.clicked.connect(lambda: self._fetch_models("ocr"))
         self.online_ocr_model_field = self._field(
             "在线手写文本识别模型",
-            self.online_ocr_model_edit,
+            self._pair(self.online_ocr_model_combo, self.ocr_models_btn),
         )
         layout.addWidget(self.online_ocr_model_field)
+        self.ocr_models_status = QLabel("可在线获取并选择；图片识别请选择支持视觉输入的模型。")
+        self.ocr_models_status.setProperty("subtitle", True)
+        self.ocr_models_status.setWordWrap(True)
+        layout.addWidget(self.ocr_models_status)
 
         self.ocr_api_key_edit = QLineEdit()
         self.ocr_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ocr_api_key_edit.textChanged.connect(lambda: self._model_key_changed("ocr"))
         self.ocr_api_key_field = self._field(
             "在线手写文本识别 API Key",
             self._pair(
@@ -186,6 +206,128 @@ class SettingsPage(QWidget):
         self.ocr_balance_btn.clicked.connect(self._check_ocr_balance)
         return self.ocr_balance_btn
 
+    @staticmethod
+    def _editable_models(name: str) -> QComboBox:
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setMaxVisibleItems(12)
+        combo.setAccessibleName(name)
+        combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        return combo
+
+    @staticmethod
+    def _clear_key_input(edit: QLineEdit) -> None:
+        previous = edit.blockSignals(True)
+        edit.clear()
+        edit.blockSignals(previous)
+
+    def _model_context(self, purpose: str) -> tuple[str, str, str]:
+        if purpose == "scoring":
+            provider = self._active_provider
+            base = self.config.get_ai_provider_config(provider).get("api_base") or get_provider_preset(provider).api_base
+        else:
+            provider = str(self.online_ocr_provider_combo.currentData() or "glm")
+            base = self.config.get("ocr.online_api_base", "") or get_online_ocr_preset(provider).api_base
+        return purpose, provider, str(base).strip().rstrip("/")
+
+    def _populate_models(self, purpose: str, current: str, catalog=None) -> None:
+        context = self._model_context(purpose)
+        catalog = catalog or self._model_catalogs.get(context)
+        combo = self.model_combo if purpose == "scoring" else self.online_ocr_model_combo
+        choices = list(catalog.models) if catalog else []
+        if current and current not in choices:
+            choices.insert(0, current)
+        previous = combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(choices)
+        combo.setCurrentIndex(combo.findText(current))
+        combo.setEditText(current)
+        combo.blockSignals(previous)
+        if catalog and not self._model_pending[purpose]:
+            status = self.models_status if purpose == "scoring" else self.ocr_models_status
+            status.setText(self._catalog_message(purpose, catalog))
+
+    @staticmethod
+    def _catalog_message(purpose: str, catalog) -> str:
+        origin = "官方公开目录，账户权限以实际调用为准" if catalog.source == "public_catalog" else "当前服务商 API"
+        advice = "；评分请选择文字对话模型" if purpose == "scoring" else "；请选择支持视觉输入的模型"
+        return f"已获取 {len(catalog.models)} 个模型 · {origin}{advice}。原填写值已保留。"
+
+    def _invalidate_model_request(self, purpose: str) -> None:
+        self._model_generations[purpose] += 1
+        self._model_pending[purpose] = False
+        button = self.models_btn if purpose == "scoring" else self.ocr_models_btn
+        button.setText("获取模型列表")
+        button.setEnabled(purpose == "scoring" or self.ocr_mode_combo.currentData() == "online")
+        status = self.models_status if purpose == "scoring" else self.ocr_models_status
+        status.setText("可在线获取并选择，也可手动输入。" if purpose == "scoring" else "图片识别请选择支持视觉输入的模型。")
+
+    def _model_key_changed(self, purpose: str) -> None:
+        if self._loading_provider:
+            return
+        self._invalidate_model_request(purpose)
+        self._model_catalogs.pop(self._model_context(purpose), None)
+        edit = self.model_edit if purpose == "scoring" else self.online_ocr_model_edit
+        self._populate_models(purpose, edit.text())
+        if purpose == "scoring":
+            self._invalidate_model_request("ocr")
+            self._model_catalogs.pop(self._model_context("ocr"), None)
+            self._populate_models("ocr", self.online_ocr_model_edit.text())
+
+    def _fetch_models(self, purpose: str) -> None:
+        if self._model_pending[purpose] or (purpose == "ocr" and self.ocr_mode_combo.currentData() != "online"):
+            return
+        _, provider, base = self._model_context(purpose)
+        if purpose == "scoring":
+            key = self.api_key_edit.text().strip() or self.config.get_api_key(provider=provider)
+        else:
+            key = self.ocr_api_key_edit.text().strip() or self.config.get_ocr_api_key(provider=provider, fallback=False)
+            if not key:
+                key = (self.api_key_edit.text().strip() if self._active_provider == provider else "") or self.config.get_api_key(provider=provider)
+        self._model_generations[purpose] += 1
+        token = self._model_generations[purpose]
+        self._model_pending[purpose] = True
+        button = self.models_btn if purpose == "scoring" else self.ocr_models_btn
+        status = self.models_status if purpose == "scoring" else self.ocr_models_status
+        button.setEnabled(False)
+        button.setText("获取中…")
+        status.setText("正在获取当前服务商的模型名称…")
+        worker = ModelListWorker(provider, base, key, purpose)
+        self._model_workers.append(worker)
+        worker.signals.finished.connect(lambda result, w=worker, p=purpose, t=token:
+                                        self._finish_model_fetch(p, t, w, result=result))
+        worker.signals.error.connect(lambda error, w=worker, p=purpose, t=token:
+                                     self._finish_model_fetch(p, t, w, error=error))
+        QThreadPool.globalInstance().start(worker)
+
+    def _finish_model_fetch(self, purpose: str, token: int, worker: ModelListWorker, *, result=None, error=None) -> None:
+        if worker in self._model_workers:
+            self._model_workers.remove(worker)
+        if token != self._model_generations[purpose]:
+            return
+        if self._model_context(purpose) != (purpose, worker.provider, worker.api_base):
+            self._invalidate_model_request(purpose)
+            return
+        self._model_pending[purpose] = False
+        button = self.models_btn if purpose == "scoring" else self.ocr_models_btn
+        status = self.models_status if purpose == "scoring" else self.ocr_models_status
+        button.setEnabled(purpose == "scoring" or self.ocr_mode_combo.currentData() == "online")
+        button.setText("获取模型列表")
+        if error:
+            status.setText(error)
+            return
+        self._model_catalogs[self._model_context(purpose)] = result
+        edit = self.model_edit if purpose == "scoring" else self.online_ocr_model_edit
+        self._populate_models(purpose, edit.text(), result)
+        status.setText(self._catalog_message(purpose, result))
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._invalidate_model_request("scoring")
+        self._invalidate_model_request("ocr")
+        super().hideEvent(event)
+
     def _field(self, label_text: str, widget: QWidget) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout(wrapper)
@@ -208,6 +350,8 @@ class SettingsPage(QWidget):
         return wrapper
 
     def load_values(self) -> None:
+        self._invalidate_model_request("scoring")
+        self._invalidate_model_request("ocr")
         self._loading_provider = True
         try:
             self._provider_models = {}
@@ -222,7 +366,7 @@ class SettingsPage(QWidget):
             index = self.provider_combo.findData(provider)
             if index >= 0:
                 self.provider_combo.setCurrentIndex(index)
-            self.model_edit.setText(
+            self._populate_models("scoring",
                 self._provider_models.get(
                     provider,
                     get_provider_preset(provider).default_model,
@@ -251,13 +395,13 @@ class SettingsPage(QWidget):
             online_preset = get_online_ocr_preset(
                 self.online_ocr_provider_combo.currentData()
             )
-            self.online_ocr_model_edit.setText(
+            self._populate_models("ocr",
                 str(
                     self.config.get("ocr.online_model", "")
                     or online_preset.default_model
                 )
             )
-            self.ocr_api_key_edit.clear()
+            self._clear_key_input(self.ocr_api_key_edit)
         finally:
             self.ocr_mode_combo.blockSignals(False)
             self.online_ocr_provider_combo.blockSignals(False)
@@ -281,26 +425,30 @@ class SettingsPage(QWidget):
         if self._loading_provider:
             return
         self._remember_provider_model()
+        self._invalidate_model_request("scoring")
+        self._invalidate_model_request("ocr")
         provider = str(self.provider_combo.currentData() or "glm")
         self._active_provider = provider
         preset = get_provider_preset(provider)
-        self.model_edit.setText(
+        self._populate_models("scoring",
             self._provider_models.get(provider, preset.default_model)
         )
-        self.api_key_edit.clear()
+        self._clear_key_input(self.api_key_edit)
         self._refresh_api_key_state()
 
     def _on_ocr_mode_changed(self, _index: int) -> None:
+        self._invalidate_model_request("ocr")
         self._refresh_ocr_controls()
 
     def _on_online_ocr_provider_changed(self, _index: int) -> None:
         if self._loading_provider:
             return
+        self._invalidate_model_request("ocr")
         preset = get_online_ocr_preset(
             self.online_ocr_provider_combo.currentData()
         )
-        self.online_ocr_model_edit.setText(preset.default_model)
-        self.ocr_api_key_edit.clear()
+        self._populate_models("ocr", preset.default_model)
+        self._clear_key_input(self.ocr_api_key_edit)
         self._refresh_ocr_api_key_state()
 
     def _refresh_ocr_controls(self) -> None:
@@ -308,7 +456,8 @@ class SettingsPage(QWidget):
         online = mode == "online"
         local = mode == "local"
         self.online_ocr_provider_combo.setEnabled(online)
-        self.online_ocr_model_edit.setEnabled(online)
+        self.online_ocr_model_combo.setEnabled(online)
+        self.ocr_models_btn.setEnabled(online and not self._model_pending["ocr"])
         self.ocr_api_key_edit.setEnabled(online)
         self.ocr_model_edit.setEnabled(local)
 
@@ -489,8 +638,8 @@ class SettingsPage(QWidget):
         if api_key:
             self.config.set_api_key(api_key, provider=provider)
         self.config.save()
-        self.api_key_edit.clear()
-        self.ocr_api_key_edit.clear()
+        self._clear_key_input(self.api_key_edit)
+        self._clear_key_input(self.ocr_api_key_edit)
         self.load_values()
         preset = get_provider_preset(provider)
         self.saved.emit()
@@ -501,11 +650,13 @@ class SettingsPage(QWidget):
         )
 
     def _clear_api_key(self) -> None:
+        self._model_catalogs.clear()
         self.config.delete_api_key(provider=self._active_provider)
         self.load_values()
         QMessageBox.information(self, "API Key 已清除", "已删除本地保存的 API Key。")
 
     def _clear_ocr_api_key(self) -> None:
+        self._model_catalogs.pop(self._model_context("ocr"), None)
         provider = str(
             self.online_ocr_provider_combo.currentData() or "glm"
         )

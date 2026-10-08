@@ -8,6 +8,7 @@ from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
 
 from ai.balance import query_balance
 from ai.chat_api import ChatCompletionClient
+from ai.model_catalog import ModelListError, fetch_model_catalog
 from gui.text_hints import SpellingHintService
 
 
@@ -77,6 +78,26 @@ class BalanceWorker(QRunnable):
             )
         except Exception as exc:  # noqa: BLE001 - worker boundary
             self.signals.error.emit(str(exc))
+
+
+class ModelListWorker(QRunnable):
+    """Retrieve provider model names without blocking settings edits."""
+
+    def __init__(self, provider: str, api_base: str, api_key: str | None, purpose: str) -> None:
+        super().__init__()
+        self.provider, self.api_base, self.api_key, self.purpose = provider, api_base, api_key, purpose
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            self.signals.finished.emit(fetch_model_catalog(self.provider, self.api_base, self.api_key, self.purpose))
+        except ModelListError as exc:
+            self.signals.error.emit(str(exc))
+        except Exception:
+            self.signals.error.emit("获取模型列表失败，可继续手动填写。")
+        finally:
+            self.api_key = None
 
 
 class QuestionSummaryWorker(QRunnable):
