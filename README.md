@@ -7,7 +7,7 @@ Python + PyQt6 独立桌面应用，支持学生练习与教师复核。项目�
 已在 Windows、Python 3.13.5、PyQt6 环境验证。使用独立虚拟环境：
 
 ```powershell
-Set-Location D:\cet
+# 在 Git 检出目录打开 PowerShell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe main.py
@@ -62,6 +62,7 @@ AI 报告字段为 `score`、`dimension_feedback`（`content`、`language`、`st
 ## 测试与界面截图
 
 ```powershell
+New-Item -ItemType Directory -Path work -Force | Out-Null
 python -m pytest tests --basetemp work/pytest -q
 python tools/capture_ui.py --output work/screenshots
 ```
@@ -80,4 +81,19 @@ JSONL 每行包含 `sample_id`、`essay_type`（CET-4 / CET-6）、`max_score`�
 
 ## GitHub
 
-目标：[WhatDoUMing/cet-writing-studio](https://github.com/WhatDoUMing/cet-writing-studio)，origin 为 `git@github.com:WhatDoUMing/cet-writing-studio.git`。本地按功能提交；远端推送需要当前执行账户可用的 GitHub SSH 凭据。配置凭据后，在项目目录运行 `git push -u origin main`。
+目标：[WhatDoUMing/cet-writing-studio](https://github.com/WhatDoUMing/cet-writing-studio)，origin 为 `git@github.com:WhatDoUMing/cet-writing-studio.git`。本地按功能提交。获授权的更改推到独立分支，创建面向 `main` 的草稿 PR 并安排独立审核；不直接推送 `main`。远端操作使用授权账户已有的 GitHub 凭据。
+
+### 可选的本地主题与开屏
+
+本仓库只包含应用源码和可复现的合成测试，不附带奶家人图片、开屏音视频、私有预览入口或运行数据。不设置素材目录也能启动：缺少主题字体或插图时使用系统字体并保留文字提示，没有完整开屏素材时直接进入主页。普通启动是静音的。在线评分或在线 OCR 需在应用设置里填写自己的 API Key；测试使用合成稿与假服务，不需要密钥。
+
+如果已经拥有这套素材，可将其保留在 Git 检出目录之外。将环境变量设为素材包所在目录，不用把文件复制进仓库：
+
+```powershell
+$env:CET_LOCAL_ASSETS_DIR = '填写你的本地素材目录'
+python main.py --with-startup-audio
+```
+
+- 素材目录保留已有布局：`startup-assets/startup-v4.json` 与其引用的图片和帧、`ui-meme-assets/ui-meme-assets.json` 与六个用途的配图、`companions` 中的三张角色 PNG、`fonts` 中的 `ui-regular.ttf` 与 `ui-bold.ttf`。图像和字体仅由本机读取，不会自动下载。
+- 若使用同一 3.4 秒开屏，在素材根目录保留原 `startup_audio_contract.json`，并把对应的 `hd-laugh-first-055-3400/laugh-fade-a.wav` 保留在 `startup-assets` 之下。程序核对清单、PCM 格式和 SHA-256；文件缺失或校验失败则静音。清单的 SHA-256 是文件完整性校验，不是内容许可证明。
+- 声音仅在交互式 Windows 窗口明确加 `--with-startup-audio` 且本人点击 Start 后，由完整首帧触发；`--silent`、离屏和减少动态不启用音频。已有本机预览入口与个人数据不需要改动。

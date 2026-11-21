@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThreadPool, Qt, pyqtSignal
+from PyQt6.QtCore import QThreadPool, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,6 +23,7 @@ from ocr.online_engine import (
     ONLINE_OCR_PRESETS,
     get_online_ocr_preset,
 )
+from gui.choice_controls import FixedChoice, SearchChoice
 from gui.workers import BalanceWorker, ModelListWorker
 
 
@@ -33,6 +33,7 @@ class SettingsPage(QWidget):
 
     def __init__(self, config_manager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("settingsPage")
         self.config = config_manager
         self._active_provider = "glm"
         self._provider_models: dict[str, str] = {}
@@ -59,11 +60,11 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(40, 36, 40, 40)
         layout.setSpacing(22)
 
-        title = QLabel("CET Writing Studio · 设置")
+        title = QLabel("CET Writing Studio 设置")
         title.setProperty("title", True)
         layout.addWidget(title)
 
-        self.provider_combo = QComboBox()
+        self.provider_combo = FixedChoice(accessible_name="AI 服务商")
         for preset in PROVIDER_PRESETS.values():
             self.provider_combo.addItem(preset.label, preset.key)
         self.provider_combo.currentIndexChanged.connect(
@@ -95,15 +96,15 @@ class SettingsPage(QWidget):
         self.models_btn = QPushButton("获取模型列表")
         self.models_btn.clicked.connect(lambda: self._fetch_models("scoring"))
         layout.addWidget(self._field("模型名称", self._pair(self.model_combo, self.models_btn)))
-        self.models_status = QLabel("可在线获取并选择，也可手动输入。评分请选择文字对话模型。")
+        self.models_status = QLabel("可手动输入，或获取列表后搜索。评分请选择文字对话模型。")
         self.models_status.setProperty("subtitle", True)
         self.models_status.setWordWrap(True)
         layout.addWidget(self.models_status)
         self.api_key_edit.textChanged.connect(lambda: self._model_key_changed("scoring"))
 
-        self.ocr_mode_combo = QComboBox()
-        self.ocr_mode_combo.addItem("在线手写文本识别（推荐）", "online")
-        self.ocr_mode_combo.addItem("本地手写文本识别", "local")
+        self.ocr_mode_combo = FixedChoice(accessible_name="手写文本识别模式")
+        self.ocr_mode_combo.addItem("在线识别（推荐）", "online")
+        self.ocr_mode_combo.addItem("本地识别", "local")
         self.ocr_mode_combo.addItem("仅手动粘贴", "manual")
         self.ocr_mode_combo.currentIndexChanged.connect(
             self._on_ocr_mode_changed
@@ -112,7 +113,7 @@ class SettingsPage(QWidget):
             self._field("手写文本识别模式", self.ocr_mode_combo)
         )
 
-        self.online_ocr_provider_combo = QComboBox()
+        self.online_ocr_provider_combo = FixedChoice(accessible_name="在线 OCR 服务商")
         for preset in ONLINE_OCR_PRESETS.values():
             self.online_ocr_provider_combo.addItem(
                 preset.label, preset.key
@@ -135,7 +136,7 @@ class SettingsPage(QWidget):
             self._pair(self.online_ocr_model_combo, self.ocr_models_btn),
         )
         layout.addWidget(self.online_ocr_model_field)
-        self.ocr_models_status = QLabel("可在线获取并选择；图片识别请选择支持视觉输入的模型。")
+        self.ocr_models_status = QLabel("可手动输入，或获取列表后搜索；请选择支持图片输入的模型。")
         self.ocr_models_status.setProperty("subtitle", True)
         self.ocr_models_status.setWordWrap(True)
         layout.addWidget(self.ocr_models_status)
@@ -170,12 +171,13 @@ class SettingsPage(QWidget):
         self.database_edit = QLineEdit()
         layout.addWidget(self._field("数据库路径", self.database_edit))
 
-        self.usage_mode_combo = QComboBox()
+        self.usage_mode_combo = FixedChoice(accessible_name="默认使用模式")
         self.usage_mode_combo.addItem("学生练习", "student")
         self.usage_mode_combo.addItem("教师批改", "teacher")
         layout.addWidget(self._field("默认 / 上次使用模式", self.usage_mode_combo))
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["浅色", "深色"])
+        self.theme_combo = FixedChoice(
+            [("浅色", "light"), ("深色", "dark")], accessible_name="主题"
+        )
         layout.addWidget(self._field("主题", self.theme_combo))
 
         self.reduce_motion_check = QCheckBox("减少动态效果（关闭按钮反馈、缩短主题反馈）")
@@ -207,15 +209,16 @@ class SettingsPage(QWidget):
         return self.ocr_balance_btn
 
     @staticmethod
-    def _editable_models(name: str) -> QComboBox:
-        combo = QComboBox()
-        combo.setEditable(True)
-        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        combo.setMaxVisibleItems(12)
-        combo.setAccessibleName(name)
-        combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
-        return combo
+    def _editable_models(name: str) -> SearchChoice:
+        return SearchChoice(
+            editable=True,
+            accessible_name=name,
+            search_placeholder="搜索模型名称",
+            open_label="选择模型",
+        )
+
+    def _model_selector(self, purpose: str) -> SearchChoice:
+        return self.model_combo if purpose == "scoring" else self.online_ocr_model_combo
 
     @staticmethod
     def _clear_key_input(edit: QLineEdit) -> None:
@@ -235,16 +238,15 @@ class SettingsPage(QWidget):
     def _populate_models(self, purpose: str, current: str, catalog=None) -> None:
         context = self._model_context(purpose)
         catalog = catalog or self._model_catalogs.get(context)
-        combo = self.model_combo if purpose == "scoring" else self.online_ocr_model_combo
+        combo = self._model_selector(purpose)
         choices = list(catalog.models) if catalog else []
         if current and current not in choices:
             choices.insert(0, current)
         previous = combo.blockSignals(True)
-        combo.clear()
-        combo.addItems(choices)
-        combo.setCurrentIndex(combo.findText(current))
-        combo.setEditText(current)
-        combo.blockSignals(previous)
+        try:
+            combo.replaceItems(choices, current_text=current)
+        finally:
+            combo.blockSignals(previous)
         if catalog and not self._model_pending[purpose]:
             status = self.models_status if purpose == "scoring" else self.ocr_models_status
             status.setText(self._catalog_message(purpose, catalog))
@@ -253,9 +255,10 @@ class SettingsPage(QWidget):
     def _catalog_message(purpose: str, catalog) -> str:
         origin = "官方公开目录，账户权限以实际调用为准" if catalog.source == "public_catalog" else "当前服务商 API"
         advice = "；评分请选择文字对话模型" if purpose == "scoring" else "；请选择支持视觉输入的模型"
-        return f"已获取 {len(catalog.models)} 个模型 · {origin}{advice}。原填写值已保留。"
+        return f"已获取 {len(catalog.models)} 个模型。{origin}{advice}。原填写值已保留。"
 
     def _invalidate_model_request(self, purpose: str) -> None:
+        self._model_selector(purpose).hidePopup(restore_focus=False)
         self._model_generations[purpose] += 1
         self._model_pending[purpose] = False
         button = self.models_btn if purpose == "scoring" else self.ocr_models_btn
@@ -459,6 +462,7 @@ class SettingsPage(QWidget):
         self.online_ocr_model_combo.setEnabled(online)
         self.ocr_models_btn.setEnabled(online and not self._model_pending["ocr"])
         self.ocr_api_key_edit.setEnabled(online)
+        self.ocr_balance_btn.setEnabled(online and self.ocr_balance_btn.text() != "检测中...")
         self.ocr_model_edit.setEnabled(local)
 
     def _refresh_ocr_api_key_state(self) -> None:
@@ -550,7 +554,7 @@ class SettingsPage(QWidget):
         provider: str,
     ) -> None:
         self._balance_workers.remove(worker)
-        button.setEnabled(True)
+        button.setEnabled(button is not self.ocr_balance_btn or self.ocr_mode_combo.currentData() == "online")
         button.setText("检测余额")
         title = f"{provider} 余额/额度"
         if result.success:
@@ -566,7 +570,7 @@ class SettingsPage(QWidget):
         provider: str,
     ) -> None:
         self._balance_workers.remove(worker)
-        button.setEnabled(True)
+        button.setEnabled(button is not self.ocr_balance_btn or self.ocr_mode_combo.currentData() == "online")
         button.setText("检测余额")
         QMessageBox.warning(
             self,
@@ -627,7 +631,7 @@ class SettingsPage(QWidget):
                 "microsoft/trocr-base-handwritten",
             )
         self.config.set("paths.database", self.database_edit.text().strip())
-        theme = "light" if self.theme_combo.currentText() == "浅色" else "dark"
+        theme = self.theme_combo.currentData() or "light"
         self.config.set("app.usage_mode", self.usage_mode_combo.currentData())
         self.config.set("app.theme", theme)
         self.config.set(

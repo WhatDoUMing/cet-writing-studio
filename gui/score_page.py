@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QIODevice, QSaveFile, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFrame,
     QFormLayout,
     QHBoxLayout,
@@ -26,6 +28,8 @@ from PyQt6.QtWidgets import (
 )
 
 from gui import motion
+from gui.theme_art import role_stamp
+from gui.workflow_art import WorkflowArt
 
 
 class ScorePage(QWidget):
@@ -33,6 +37,7 @@ class ScorePage(QWidget):
     dispute_requested = pyqtSignal()
     apply_corrections_requested = pyqtSignal()
     confirmation_requested = pyqtSignal(object)
+    workflow_art_presented = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -40,6 +45,8 @@ class ScorePage(QWidget):
         self.usage_mode = "student"
         self._submitted_text = ""
         self._exam_level = "CET-4"
+        self._loading = False
+        self._review_confirmed = False
         self._build_ui()
         self.set_loading(False)
 
@@ -59,7 +66,16 @@ class ScorePage(QWidget):
 
         self.title = QLabel("AI 正在分析")
         self.title.setProperty("title", True)
-        self.body_layout.addWidget(self.title)
+        heading = QHBoxLayout()
+        heading.setSpacing(16)
+        self.report_stamp = role_stamp("naigou", 68)
+        self.review_reading_art = WorkflowArt("reviewing", 76, 64)
+        self.practice_completed_art = WorkflowArt("review_completed", 68, 60)
+        heading.addWidget(self.report_stamp)
+        heading.addWidget(self.review_reading_art)
+        heading.addWidget(self.practice_completed_art)
+        heading.addWidget(self.title, 1)
+        self.body_layout.addLayout(heading)
 
         self.status = QLabel("")
         self.status.setProperty("subtitle", True)
@@ -112,7 +128,12 @@ class ScorePage(QWidget):
         self.review_status = QLabel("待教师确认：AI 分数仅为批改建议。")
         self.review_status.setWordWrap(True)
         self.review_status.setProperty("subtitle", True)
-        review_layout.addWidget(self.review_status)
+        review_status_row = QHBoxLayout()
+        review_status_row.setSpacing(8)
+        self.review_completed_art = WorkflowArt("review_completed", 68, 60)
+        review_status_row.addWidget(self.review_completed_art)
+        review_status_row.addWidget(self.review_status, 1)
+        review_layout.addLayout(review_status_row)
         review_form = QFormLayout()
         self.final_score_edit = QLineEdit()
         self.final_score_edit.setPlaceholderText("输入教师最终总分")
@@ -167,7 +188,12 @@ class ScorePage(QWidget):
         self.correction_status = QLabel("")
         self.correction_status.setProperty("subtitle", True)
         self.correction_status.setWordWrap(True)
-        correction_layout.addWidget(self.correction_status)
+        export_status_row = QHBoxLayout()
+        export_status_row.setSpacing(8)
+        self.export_success_art = WorkflowArt("export_success", 64, 56)
+        export_status_row.addWidget(self.export_success_art)
+        export_status_row.addWidget(self.correction_status, 1)
+        correction_layout.addLayout(export_status_row)
         correction_actions = QHBoxLayout()
         self.apply_corrections_btn = QPushButton("一键替换生成修正作文")
         self.apply_corrections_btn.setProperty("primary", True)
@@ -178,6 +204,10 @@ class ScorePage(QWidget):
         self.copy_corrected_btn.clicked.connect(self._copy_corrected)
         correction_actions.addWidget(self.apply_corrections_btn)
         correction_actions.addWidget(self.copy_corrected_btn)
+        self.export_corrected_btn = QPushButton("另存为文本")
+        self.export_corrected_btn.setAccessibleName("另存修正作文为文本")
+        self.export_corrected_btn.clicked.connect(self._export_corrected)
+        correction_actions.addWidget(self.export_corrected_btn)
         correction_actions.addStretch(1)
         correction_layout.addLayout(correction_actions)
         self.body_layout.addWidget(self.correction_frame)
@@ -194,7 +224,9 @@ class ScorePage(QWidget):
         self.body_layout.addLayout(self.actions)
 
     def set_loading(self, loading: bool, message: str = "AI 正在分析作文...") -> None:
+        self._loading = loading
         if loading:
+            self._clear_completion_art()
             for frame in (self.review_frame, self.correction_frame):
                 motion.cancel_motion(frame)
         self.progress.setVisible(loading)
@@ -206,20 +238,61 @@ class ScorePage(QWidget):
         self.dispute_btn.setEnabled(not loading and has_report)
         self.apply_corrections_btn.setEnabled(not loading and has_report)
         self.copy_corrected_btn.setEnabled(not loading and has_report)
-        review_enabled = not loading and has_report
+        self._refresh_export_button()
+        review_enabled = not loading and has_report and not self._review_confirmed
         self.accept_ai_btn.setEnabled(review_enabled)
         self.confirm_score_btn.setEnabled(review_enabled)
         if loading:
             self.title.setText("AI 正在分析")
             self.status.setText(message)
         elif has_report:
-            self.title.setText("04 · 学生练习报告" if self.usage_mode == "student" else "04 · 教师复核报告")
+            self.title.setText("04 学生练习报告" if self.usage_mode == "student" else "04 教师复核报告")
         else:
             self.title.setText("暂无评分结果")
+        self._refresh_report_art()
+
+    def _refresh_export_button(self) -> None:
+        self.export_corrected_btn.setEnabled(
+            not self._loading and bool(self.report) and bool(self.corrected_edit.toPlainText().strip())
+        )
+
+    def _refresh_report_art(self) -> None:
+        completion = any(art.active for art in (
+            self.practice_completed_art, self.review_completed_art, self.export_success_art,
+        ))
+        reviewing = self._loading or (
+            bool(self.report) and self.usage_mode == "teacher" and not self._review_confirmed
+        )
+        reading = self.review_reading_art.set_active(reviewing and not completion)
+        self.report_stamp.setVisible(self.report_stamp.role is not None and not (reading or completion))
+        if reading or completion:
+            self.workflow_art_presented.emit()
+
+    def has_workflow_art(self) -> bool:
+        return any(art.active for art in (
+            self.review_reading_art, self.practice_completed_art,
+            self.review_completed_art, self.export_success_art,
+        ))
+
+    def acknowledge_student_save(self) -> None:
+        """Celebrate a successful new write, never a replay of a saved report."""
+        art = self.practice_completed_art
+        if self.usage_mode != "student" or self._loading or not self.report or art.active:
+            return
+        if art.set_active(True):
+            art.play_review_once(reduced=motion.is_reduce_motion())
+            self._refresh_report_art()
+
+    def _clear_completion_art(self) -> None:
+        self.practice_completed_art.set_active(False)
+        self.review_completed_art.set_active(False)
+        self.export_success_art.set_active(False)
 
     def reset_report(self, message: str = "") -> None:
         """Clear every artifact from the previous grading session."""
         self.report = {}
+        self._review_confirmed = False
+        self._clear_completion_art()
         for frame in (self.review_frame, self.correction_frame):
             motion.cancel_motion(frame)
         self.corrected_edit.clear()
@@ -237,9 +310,11 @@ class ScorePage(QWidget):
 
     def show_report(self, report: dict[str, Any]) -> None:
         self.report = report
-        self.set_loading(False)
+        self._review_confirmed = False
+        self._clear_completion_art()
         self.corrected_edit.clear()
         self.correction_status.clear()
+        self.set_loading(False)
         self._clear_report()
 
         revealed: list[QWidget] = []
@@ -278,7 +353,7 @@ class ScorePage(QWidget):
         self.report_layout.addStretch(1)
         revealed.extend([self.review_frame, self.correction_frame])
         self.original_edit.setPlainText(self._submitted_text)
-        self.status.setText("练习报告已自动保存 · AI 练习分用于学生趋势" if self.usage_mode == "student" else "AI 建议与教师最终分分别保存 · 原始报告保留")
+        self.status.setText("练习报告已自动保存。AI 练习分用于学生趋势" if self.usage_mode == "student" else "AI 建议与教师最终分分别保存，原始报告保留")
 
     def _score_block(self, score: str) -> QWidget:
         """Hero-style AI score with a caption, like an Apple spec callout."""
@@ -290,7 +365,7 @@ class ScorePage(QWidget):
         caption.setProperty("eyebrow", True)
         score_label = QLabel(f"{score} / 15")
         score_label.setProperty("score", True)
-        note = QLabel(f"{self.report.get('score_band', '')} · {self.report.get('word_count', 0)} 词 · {self._exam_level}")
+        note = QLabel(f"{self.report.get('score_band', '')} {self.report.get('word_count', 0)} 词 {self._exam_level}")
         note.setProperty("subtitle", True)
         note.setWordWrap(True)
         layout.addWidget(caption)
@@ -315,8 +390,10 @@ class ScorePage(QWidget):
         }
         self.confirmation_requested.emit(payload)
 
-    def mark_confirmed(self, review: dict[str, Any]) -> None:
-        """Reflect a successfully persisted teacher confirmation."""
+    def mark_confirmed(self, review: dict[str, Any], *, celebrate: bool = False) -> None:
+        """Render saved data; only a new successful write can trigger applause."""
+        self._review_confirmed = True
+        self._clear_completion_art()
         score = str(review.get("teacher_score", ""))
         reviewer = str(review.get("reviewer", ""))
         self.final_score_edit.setText(score)
@@ -332,6 +409,10 @@ class ScorePage(QWidget):
         )
         self.accept_ai_btn.setEnabled(False)
         self.confirm_score_btn.setEnabled(False)
+        if celebrate and self.usage_mode == "teacher":
+            self.review_completed_art.set_active(True)
+            self.review_completed_art.play_review_once(reduced=motion.is_reduce_motion())
+        self._refresh_report_art()
 
     def set_corrected_essay(
         self,
@@ -339,7 +420,10 @@ class ScorePage(QWidget):
         applied: int,
         skipped: list[str],
     ) -> None:
+        self.export_success_art.set_active(False)
         self.corrected_edit.setPlainText(text)
+        self._refresh_export_button()
+        self._refresh_report_art()
         if skipped:
             self.correction_status.setText(
                 f"已替换 {applied} 处，另有 {len(skipped)} 处未在原文中精确"
@@ -349,12 +433,53 @@ class ScorePage(QWidget):
             self.correction_status.setText(f"已替换 {applied} 处修改。")
 
     def _copy_corrected(self) -> None:
+        self.export_success_art.set_active(False)
+        self._refresh_report_art()
         text = self.corrected_edit.toPlainText().strip()
         if not text:
             self.correction_status.setText("当前没有可复制的修正作文。")
             return
         QApplication.clipboard().setText(text)
         self.correction_status.setText("修正作文已复制到剪贴板。")
+
+    def _export_corrected(self) -> None:
+        """Save only after the user chooses a local .txt path; no implicit export."""
+        self._clear_completion_art()
+        self._refresh_report_art()
+        text = self.corrected_edit.toPlainText()
+        if self._loading or not self.report or not text.strip():
+            self.correction_status.setText("当前没有可另存的修正作文。")
+            return
+        report = self.report
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "另存修正作文", "修正作文.txt", "文本文件 (*.txt)"
+        )
+        if not filename:
+            self.correction_status.setText("已取消另存，没有写入文件。")
+            return
+        if self._loading or self.report is not report or self.corrected_edit.toPlainText() != text:
+            self.correction_status.setText("修正稿已变化，未写入任何文件。")
+            return
+        path = Path(filename)
+        if filename.startswith(("//", "\\\\")) or not path.is_absolute() or path.suffix.casefold() != ".txt":
+            self.correction_status.setText("请选择本机的 .txt 文件。")
+            return
+        destination = QSaveFile(str(path))
+        data = text.encode("utf-8")
+        if not destination.open(QIODevice.OpenModeFlag.WriteOnly):
+            self.correction_status.setText("另存失败，文件未写入。请检查保存位置和权限。")
+            return
+        if destination.write(data) != len(data):
+            destination.cancelWriting()
+            self.correction_status.setText("另存失败，文件未完整写入。")
+            return
+        if not destination.commit():
+            self.correction_status.setText("另存失败，文件未写入。请检查保存位置和权限。")
+            return
+        self.correction_status.setText("修正作文已保存为文本。")
+        self.practice_completed_art.set_active(False)
+        self.export_success_art.set_active(True)
+        self._refresh_report_art()
 
     def _clear_report(self) -> None:
         while self.report_layout.count():
@@ -422,8 +547,10 @@ class ScorePage(QWidget):
         return label
 
     def set_context(self, text, level, usage_mode, source_mode=None):
+        if usage_mode != self.usage_mode:
+            self._clear_completion_art()
         self._submitted_text, self._exam_level, self.usage_mode = text, level, usage_mode
         self.original_edit.setPlainText(text)
         source = "学生练习" if (source_mode or usage_mode) == "student" else "教师批改"
-        self.source_label.setText(f"{level} · 创建来源：{source}")
+        self.source_label.setText(f"{level} 创建来源：{source}")
         self.set_loading(False)

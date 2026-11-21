@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from sqlite3 import Error as SQLiteError
 from typing import Any
 
 from PyQt6.QtCore import QThreadPool, Qt
 from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -45,6 +45,8 @@ from gui.score_page import ScorePage
 from gui.settings_page import SettingsPage
 from gui.setup_page import SetupPage
 from gui.styles import get_app_style, prepare_fonts
+from gui.theme_art import ThemeArt, role_stamp
+from gui.choice_controls import FixedChoice
 from gui.workers import (
     GradingWorker,
     OCRWorker,
@@ -83,6 +85,8 @@ class MainWindow(QMainWindow):
         self._reference_text: str = ""
         self._active_ocr_engine: Any | None = None
         self._current_essay_id: int | None = None
+        self._owned_ocr_draft: tuple[Database, dict[str, Any]] | None = None
+        self._finalized_ocr_draft: tuple[Database, dict[str, Any]] | None = None
         self._current_report: dict[str, Any] = {}
         self._current_graded_text = ""
         self._pending_grading: dict[str, Any] = {}
@@ -91,6 +95,7 @@ class MainWindow(QMainWindow):
         self._job_sequence = 0
         self._active_jobs: dict[str, tuple[int, int]] = {}
         self._continue_session_from_setup = False
+        self._setup_resume_session: int | None = None
         self._closed = False
         self.usage_mode = str(self.config.get("app.usage_mode", "student"))
         self.exam_level = str(self.config.get("app.exam_level", "CET-4"))
@@ -101,12 +106,16 @@ class MainWindow(QMainWindow):
             "paths.database", ""
         )
 
-        self.setWindowTitle(self.config.get("app.name"))
+        title = self.config.get("app.name")
+        # Normalize the old built-in title for display, not user-defined names or saved settings.
+        if title == "CET Writing Studio \N{MIDDLE DOT} 四六级作文批改":
+            title = "CET Writing Studio 四六级作文批改"
+        self.setWindowTitle(title)
         self.resize(
             int(self.config.get("app.window_width", 1280)),
             int(self.config.get("app.window_height", 820)),
         )
-        self.setMinimumSize(960, 640)
+        self.setMinimumSize(800, 600)
         self._active_theme = str(self.config.get("app.theme", "light"))
         motion.set_reduce_motion(bool(self.config.get("app.reduce_motion", False)))
         motion.reset_shutdown_state()
@@ -136,7 +145,8 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        root_layout.addWidget(self._build_sidebar())
+        self.sidebar = self._build_sidebar()
+        root_layout.addWidget(self.sidebar)
 
         self.stack = QStackedWidget()
         self.home_page = HomePage()
@@ -161,27 +171,86 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("workspaceHeader")
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(32, 14, 32, 14)
-        brand = QLabel("CET Writing Studio")
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(12)
+        brand = QLabel("写作工作台")
         brand.setProperty("section", True)
+        self.header_title = brand
+        self.header_companion = ThemeArt(48)
+        header_layout.addWidget(self.header_companion)
         header_layout.addWidget(brand)
-        header_layout.addStretch()
-        self.mode_combo = QComboBox()
+        self.stack.currentChanged.connect(self._update_header)
+        header_layout.addStretch(1)
+        self.mode_combo = FixedChoice(accessible_name="使用模式")
         self.mode_combo.setAccessibleName("使用模式")
         self.mode_combo.addItem("学生练习", "student")
         self.mode_combo.addItem("教师批改", "teacher")
         self.mode_combo.setCurrentIndex(1 if self.usage_mode == "teacher" else 0)
-        self.exam_combo = QComboBox()
+        self.exam_combo = FixedChoice(accessible_name="考试级别")
         self.exam_combo.setAccessibleName("考试级别")
         self.exam_combo.addItems(list(ESSAY_TYPES))
         self.exam_combo.setCurrentText(self.exam_level)
-        header_layout.addWidget(self.mode_combo)
-        header_layout.addWidget(self.exam_combo)
+        self.home_page.set_exam_level(self.exam_level)
+        self.exam_combo.currentTextChanged.connect(self.home_page.set_exam_level)
+        for caption, role, field in (("使用模式", "naiwa", self.mode_combo),
+                                     ("考试级别", "naidan", self.exam_combo)):
+            rail = QVBoxLayout()
+            rail.setSpacing(2)
+            # Both short choices fit at the 800px window minimum. Give extra
+            # header space to the lead, not to invisible gaps between groups.
+            field.setMinimumWidth(176 if field is self.mode_combo else 140)
+            caption_line = QHBoxLayout()
+            caption_line.setSpacing(4)
+            caption_line.addWidget(role_stamp(role, 22))
+            name = QLabel(caption)
+            name.setProperty("fieldLabel", True)
+            caption_line.addWidget(name)
+            caption_line.addStretch()
+            rail.addLayout(caption_line)
+            rail.addWidget(field)
+            header_layout.addLayout(rail)
         workspace_layout.addWidget(header)
         workspace_layout.addWidget(self.stack, 1)
         root_layout.addWidget(workspace, 1)
+        self._fit_shell(self.width())
         self.setup_page.mode_buttons[self.exam_level].setChecked(True)
         self.score_page.usage_mode = self.usage_mode
+
+    def _update_header(self, index: int) -> None:
+        pages = (("写作工作台", None), ("写作工作台", None), ("原文校对", "naidan"),
+                 ("写作工作台", None), ("写作工作台", None), ("偏好设置", "naiwa"))
+        if 0 <= index < len(pages):
+            title, role = pages[index]
+            self.header_title.setText(title)
+            if index == 2 and self.ocr_page.guide_art.active:
+                role = None
+            self.header_companion.show_role(role)
+
+    def _confirm_success(self, message: str) -> None:
+        """Positive feedback only after persistence, never on render or replay."""
+        if self._closed:
+            return
+        self.header_title.setText(message)
+        if self.stack.currentIndex() == 3 and self.score_page.has_workflow_art():
+            self.header_companion.show_role(None)
+            return
+        role = "naiwa" if self.stack.currentIndex() == 5 else "naigou"
+        self.header_companion.show_role(role)
+        self.header_companion.play_feedback(reduced=motion.is_reduce_motion())
+
+    def _on_settings_saved(self) -> None:
+        if self._apply_runtime_settings():
+            self._confirm_success("设置已保存")
+
+    def _fit_shell(self, width: int) -> None:
+        compact = width < 1040
+        self.sidebar.setFixedWidth(120 if compact else 176)
+        self.sidebar.layout().setContentsMargins(8 if compact else 16, 24, 8 if compact else 16, 20)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            self._fit_shell(event.size().width())
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
@@ -256,6 +325,7 @@ class MainWindow(QMainWindow):
         self.score_page.confirmation_requested.connect(
             self._confirm_teacher_score
         )
+        self.score_page.workflow_art_presented.connect(self._hide_score_header_art)
 
         self.history_page.back_requested.connect(lambda: self._navigate(0))
         self.history_page.edit_requested.connect(
@@ -271,7 +341,11 @@ class MainWindow(QMainWindow):
             lambda: self._load_history_page(reset=False)
         )
         self.settings_page.back_requested.connect(lambda: self._navigate(0))
-        self.settings_page.saved.connect(self._apply_runtime_settings)
+        self.settings_page.saved.connect(self._on_settings_saved)
+
+    def _hide_score_header_art(self) -> None:
+        if self.stack.currentIndex() == 3:
+            self.header_companion.show_role(None)
 
     def _navigate_from_sidebar(self, index: int) -> None:
         if index == 1:
@@ -300,6 +374,7 @@ class MainWindow(QMainWindow):
     def _return_to_setup(self) -> None:
         self._invalidate_jobs("ocr", "reference", "grading")
         self._continue_session_from_setup = self._current_essay_id is not None
+        self._setup_resume_session = self._session_token
         self._navigate(1)
 
     def _return_to_ocr(self) -> None:
@@ -343,6 +418,8 @@ class MainWindow(QMainWindow):
     def _switch_page(self, page_index: int) -> None:
         """Cross-fade to another stack page instead of hard-cutting."""
         motion.cancel_motion(self.stack)
+        if self.stack.currentIndex() == page_index:
+            self._update_header(page_index)
         self.stack.setCurrentIndex(page_index)
 
     def _open_history(self) -> None:
@@ -398,17 +475,37 @@ class MainWindow(QMainWindow):
             self._continue_session_from_setup
             and self._current_essay_id is not None
         )
+        manual_body = ""
+        if (
+            self._setup_resume_session == self._session_token
+            and draft.get("input_mode") == "manual"
+            and all(draft.get(key) == self._draft.get(key) for key in (
+                "essay_type", "question", "student_name", "usage_mode", "input_mode",
+            ))
+        ):
+            manual_body = self.ocr_page.text_edit.toPlainText()
+        finalized_ocr = (
+            self._finalized_ocr_draft if self._setup_resume_session == self._session_token else None
+        )
         self._begin_session(draft, reuse_current=reuse_current)
+        self._restore_finalized_ocr_draft(finalized_ocr)
         self._continue_session_from_setup = False
         if self._draft.get("input_mode", "manual") == "manual":
             self._active_ocr_engine = None
             self.ocr_page.clear_image()
-            self.ocr_page.set_text("")
+            self.ocr_page.set_text(manual_body)
             self._navigate(2)
             self.ocr_page.set_busy(
                 False,
                 "请直接粘贴或输入作文文本。",
             )
+            return
+
+        if self._finalized_ocr_draft is not None:
+            saved = self._finalized_ocr_draft[1]
+            self.ocr_page.set_image(self._draft["image_path"])
+            self.ocr_page.set_text(self.ocr_page.text_edit.toPlainText() or saved["submitted_text"])
+            self._navigate(2)
             return
 
         self._active_ocr_engine = self._create_ocr_engine()
@@ -418,7 +515,7 @@ class MainWindow(QMainWindow):
         if self._active_ocr_engine is None:
             self.ocr_page.set_busy(
                 False,
-                "请直接粘贴或输入作文文本，然后进入评分。",
+                "请直接粘贴或输入作文文本，然后进入评分",
             )
             return
         self._run_ocr(self._draft["image_path"])
@@ -432,7 +529,9 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Start an isolated workflow generation, optionally retaining its row."""
         retained_id = self._current_essay_id if reuse_current else None
+        ocr_owner = self._owned_ocr_draft if reuse_current else None
         self._session_token += 1
+        self._setup_resume_session = None
         self._active_jobs.clear()
         self._draft = dict(draft)
         self._draft.setdefault("usage_mode", self.usage_mode)
@@ -441,6 +540,9 @@ class MainWindow(QMainWindow):
         self._reference_text = ""
         self._active_ocr_engine = None
         self._current_essay_id = retained_id
+        self._owned_ocr_draft = None
+        self._restore_ocr_draft_owner(ocr_owner)
+        self._restore_finalized_ocr_draft(None)
         self._current_report = {}
         self._current_graded_text = ""
         self._pending_grading = {}
@@ -451,6 +553,53 @@ class MainWindow(QMainWindow):
         )
         self.ocr_page.set_busy(False)
         self.score_page.reset_report()
+
+    def _matches_ocr_draft_owner(self, owner: dict[str, Any], draft: dict[str, Any]) -> bool:
+        return (
+            draft.get("input_mode") == "ocr"
+            and owner["usage_mode"] == draft.get("usage_mode", self.usage_mode) == self.usage_mode
+            and owner["type"] == draft.get("essay_type") == self.exam_level
+            and owner["question"] == draft.get("question")
+            and owner["image_path"] == draft.get("image_path")
+            and (owner["student_name"] or "") == str(draft.get("student_name") or "").strip()
+            and owner["minimum_words"] == draft.get("minimum_words")
+        )
+
+    def _restore_ocr_draft_owner(self, owner: tuple[Database, dict[str, Any]] | None) -> None:
+        if owner is None:
+            return
+        origin_db, expected = owner
+        if not self._matches_ocr_draft_owner(expected, self._draft):
+            return
+        # Keep the original database and pending version. A conflicting retry must not insert.
+        self._owned_ocr_draft = owner
+        try:
+            matches = origin_db is self.db and self.db.still_owns_ocr_draft(expected)
+        except SQLiteError:
+            log.exception("Failed to check the restored OCR draft")
+            matches = False
+        if matches:
+            self._current_essay_id = expected["id"]
+        elif self._current_essay_id == expected["id"]:
+            self._current_essay_id = None
+
+    def _restore_finalized_ocr_draft(self, candidate: tuple[Database, dict[str, Any]] | None) -> None:
+        self._finalized_ocr_draft = None
+        if candidate is not None:
+            database, expected = candidate
+            if database is self.db and self._matches_ocr_draft_owner(expected, self._draft):
+                try:
+                    record = self.db.get_essay(expected["id"])
+                except SQLiteError:
+                    log.exception("Could not recheck a previously finalized OCR draft")
+                    record = expected  # Do not begin a duplicate if the known row cannot be checked.
+                if (
+                    record is not None and record.get("ai_score")
+                    and record["time"] == expected["time"]
+                    and self._matches_ocr_draft_owner(record, self._draft)
+                ):
+                    self._finalized_ocr_draft = (self.db, record)
+        self.ocr_page.set_re_recognition_allowed(self._finalized_ocr_draft is None)
 
     def _staged_record_fields(self, text: str) -> dict[str, str]:
         """Capture revision fields without changing the persisted record."""
@@ -650,10 +799,13 @@ class MainWindow(QMainWindow):
         log.warning("Reference essay recognition failed: %s", message)
 
     def _restart_recognition(self) -> None:
-        if self._draft.get("input_mode", "manual") == "manual":
+        if self._finalized_ocr_draft is not None or self._draft.get("input_mode", "manual") == "manual":
             return
         if not self._draft.get("image_path"):
             return
+        if self._active_ocr_engine is None:
+            # Changing drafts does not start OCR. Re-initialize only on an explicit retry.
+            self._active_ocr_engine = self._create_ocr_engine()
         if self._active_ocr_engine is None:
             self.ocr_page.set_busy(
                 False,
@@ -663,7 +815,7 @@ class MainWindow(QMainWindow):
         self._run_ocr(self._draft["image_path"])
 
     def _run_ocr(self, image_path: str) -> None:
-        if self._active_ocr_engine is None:
+        if self._finalized_ocr_draft is not None or self._active_ocr_engine is None:
             return
         mode = str(self.config.get("ocr.mode", "online")).lower()
         progress = (
@@ -715,8 +867,29 @@ class MainWindow(QMainWindow):
             log.info("Discarded stale essay OCR result")
             return
         self._active_jobs.pop("ocr", None)
+        if self._finalized_ocr_draft is not None:
+            self.ocr_page.set_busy(False)
+            return
         self.ocr_page.set_text(text)
         self.ocr_page.set_busy(False)
+        owner = self._owned_ocr_draft
+        if owner is not None:
+            origin_db, expected = owner
+            try:
+                saved = (
+                    origin_db is self.db and self._current_essay_id == expected["id"]
+                    and self._matches_ocr_draft_owner(expected, draft)
+                    and self.db.update_owned_ocr_draft(expected, text)
+                )
+            except SQLiteError:
+                log.exception("Failed to update the pending OCR draft")
+                self.ocr_page.set_notice("未能保存识别结果。文本仍保留在当前页面。")
+                return
+            if not saved:
+                self._current_essay_id = None
+                self.ocr_page.set_notice("原草稿已变更。未覆盖历史，识别文本仍保留在当前页面。")
+                return
+            self._owned_ocr_draft = (self.db, {**expected, "ocr_text": text})
         if self._current_essay_id is None:
             self._current_essay_id = self.db.create_essay(
                 student_name=str(draft.get("student_name") or ""),
@@ -727,6 +900,12 @@ class MainWindow(QMainWindow):
                 usage_mode=str(self._draft.get("usage_mode", self.usage_mode)),
                 minimum_words=self._draft.get("minimum_words"),
             )
+            saved_row = self.db.get_essay(self._current_essay_id)
+            if (
+                saved_row is not None and saved_row["ocr_text"] == text
+                and self._matches_ocr_draft_owner(saved_row, draft)
+            ):
+                self._owned_ocr_draft = (self.db, saved_row)
         else:
             # Existing completed records remain untouched until a validated
             # grading result commits this staged OCR text.
@@ -988,9 +1167,11 @@ class MainWindow(QMainWindow):
             return
         self._active_jobs.pop("grading", None)
         self._pending_grading = {}
+        self._owned_ocr_draft = None
         self._current_report = report
         self.ocr_page.set_busy(False)
         record = self.db.get_essay(pending["essay_id"])
+        self._restore_finalized_ocr_draft((self.db, record) if record is not None else None)
         self.score_page.set_context(pending["kwargs"]["student_text"], pending["kwargs"]["essay_type"], self.usage_mode, record["usage_mode"])
         self.score_page.show_report(report)
         essay_id = pending.get("essay_id")
@@ -1000,6 +1181,8 @@ class MainWindow(QMainWindow):
             else None
         )
         self._navigate(3)
+        self.score_page.acknowledge_student_save()
+        self._confirm_success("评分已保存")
 
     def _confirm_teacher_score(self, review: dict[str, Any]) -> None:
         """Validate and persist the teacher's final grading decision."""
@@ -1061,9 +1244,11 @@ class MainWindow(QMainWindow):
                 "teacher_comment": teacher_comment,
                 "teacher_reason": teacher_reason,
                 "reviewer": reviewer,
-            }
+            },
+            celebrate=True,
         )
         self._revision_backup = self.db.get_essay(essay_id)
+        self._confirm_success("复核已保存")
         if review.get("use_long_term") and record.get("feedback"):
             self._approve_feedback_rule(essay_id, str(record["feedback"]), reviewer)
 
@@ -1323,7 +1508,12 @@ class MainWindow(QMainWindow):
         self._context_switching = True
         try:
             key = (self.usage_mode, self.exam_level)
-            self._context_drafts[key] = (dict(self._draft), self.ocr_page.get_text(), self.setup_page.capture_draft())
+            current_setup = self.setup_page.capture_draft()
+            self._context_drafts[key] = (
+                dict(self._draft), self.ocr_page.get_text(), current_setup,
+                self._owned_ocr_draft, self._finalized_ocr_draft,
+            )
+            exam_changed = new_mode == self.usage_mode and new_level != self.exam_level
             on_report = self.stack.currentIndex() == 3 and bool(self._current_report) and new_level == self.exam_level
             self._invalidate_jobs()
             self.usage_mode, self.exam_level = new_mode, new_level
@@ -1338,9 +1528,18 @@ class MainWindow(QMainWindow):
                 if record.get("review_status") == "confirmed":
                     self.score_page.mark_confirmed(record)
             else:
-                draft, text, setup = self._context_drafts.get((new_mode, new_level), ({}, "", {}))
+                draft, text, setup, ocr_owner, finalized_ocr = self._context_drafts.get(
+                    (new_mode, new_level), ({}, "", {}, None, None),
+                )
                 self._begin_session(draft, reuse_current=False)
+                self._restore_ocr_draft_owner(ocr_owner)
+                self._restore_finalized_ocr_draft(finalized_ocr)
+                image_path = draft.get("image_path") if draft.get("input_mode") == "ocr" else None
+                self.ocr_page.set_image(image_path)
                 self.ocr_page.set_text(text)
+                if exam_changed:
+                    # Exam drafts are separate; selecting an exam does not select an input method.
+                    setup = {**setup, "manual": current_setup["manual"]}
                 self.setup_page.restore_draft(setup)
                 if self.stack.currentIndex() in (1, 2, 3):
                     self._navigate(2 if draft and text else 1)
@@ -1400,7 +1599,7 @@ class MainWindow(QMainWindow):
             else None
         )
 
-    def _apply_runtime_settings(self) -> None:
+    def _apply_runtime_settings(self) -> bool:
         """Apply path, local OCR model, theme, and motion changes immediately."""
         motion.set_reduce_motion(bool(self.config.get("app.reduce_motion", False)))
         app = QApplication.instance()
@@ -1413,10 +1612,11 @@ class MainWindow(QMainWindow):
                 motion.theme_crossfade(self.centralWidget())
 
         self.mode_combo.setCurrentIndex(1 if self.config.get("app.usage_mode", "student") == "teacher" else 0)
-        self._switch_database_from_settings()
+        database_ready = self._switch_database_from_settings()
         self.ocr_engine = TrOCREngine(self.config.get_ocr_config())
+        return database_ready
 
-    def _switch_database_from_settings(self) -> None:
+    def _switch_database_from_settings(self) -> bool:
         """Switch databases only after the replacement is fully initialized."""
         previous = self.db
         previous_setting = self._active_database_setting
@@ -1432,7 +1632,7 @@ class MainWindow(QMainWindow):
             )
             if configured_key == current_key:
                 self._active_database_setting = requested_setting
-                return
+                return True
             replacement = Database(configured_path)
             replacement.connect()
         except Exception as exc:  # noqa: BLE001 - settings boundary
@@ -1454,7 +1654,7 @@ class MainWindow(QMainWindow):
                 f"新数据库路径未能打开，应用将继续使用原数据库：{exc}"
                 f"{restore_error}",
             )
-            return
+            return False
 
         assert replacement is not None
         self.db = replacement
@@ -1464,9 +1664,11 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001 - replacement is already active
             log.exception("Could not close previous database after switch")
         self._begin_session({}, reuse_current=False)
+        return True
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt API
         self._closed = True
+        self.header_companion.stop_feedback()
         self._session_token += 1
         self._active_jobs.clear()
         self._pending_grading = {}

@@ -581,7 +581,7 @@ def test_ai_result_is_pending_and_traceable_until_teacher_confirms(
     assert pending["max_score"] == "15"
     assert db.get_score_trend("学生", usage_mode="teacher") == []
     assert window.history_page._display_score(pending) == "待教师确认"
-    assert window.score_page.title.text() == "04 · 教师复核报告"
+    assert window.score_page.title.text() == "04 教师复核报告"
     assert "AI 分数仅为批改建议" in window.score_page.review_status.text()
 
     report_json = pending["report_json"]

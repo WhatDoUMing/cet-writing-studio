@@ -23,6 +23,11 @@ from PyQt6.QtWidgets import (
 )
 
 from ai.prompt import ESSAY_TYPES
+from gui.theme_art import role_stamp
+from gui.workflow_art import WorkflowArt
+
+
+EXAMPLE_UPLOAD_HINT = "可上传本考试级别的优秀作文作评分参考"
 
 
 class SetupPage(QWidget):
@@ -50,9 +55,13 @@ class SetupPage(QWidget):
         layout.setContentsMargins(48, 40, 48, 40)
         layout.setSpacing(22)
 
-        title = QLabel("01 · 考试与题目")
+        title = QLabel("01   考试与题目")
         title.setProperty("title", True)
-        layout.addWidget(title)
+        heading = QHBoxLayout()
+        heading.setSpacing(16)
+        heading.addWidget(role_stamp("naidan", 68))
+        heading.addWidget(title, 1)
+        layout.addLayout(heading)
 
         self.student_name = QLineEdit()
         self.student_name.setPlaceholderText("学生姓名（可选）")
@@ -62,11 +71,12 @@ class SetupPage(QWidget):
         mode_frame = QFrame()
         mode_layout = QHBoxLayout(mode_frame)
         mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(24)
+        mode_layout.setSpacing(16)
         self.mode_group = QButtonGroup(self)
         self.mode_buttons: dict[str, QRadioButton] = {}
         for index, (name, score) in enumerate(ESSAY_TYPES.items()):
             radio = QRadioButton(f"{name}（{score} 分）")
+            radio.setProperty("choiceRadio", True)
             if index == 0:
                 radio.setChecked(True)
             self.mode_group.addButton(radio)
@@ -78,10 +88,12 @@ class SetupPage(QWidget):
         input_frame = QFrame()
         input_layout = QHBoxLayout(input_frame)
         input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(24)
+        input_layout.setSpacing(16)
         self.input_mode_group = QButtonGroup(self)
         self.manual_mode_radio = QRadioButton("文本输入（推荐）")
         self.ocr_mode_radio = QRadioButton("图片识别 / OCR（可选）")
+        self.manual_mode_radio.setProperty("choiceRadio", True)
+        self.ocr_mode_radio.setProperty("choiceRadio", True)
         self.manual_mode_radio.setChecked(True)
         self.input_mode_group.addButton(self.manual_mode_radio)
         self.input_mode_group.addButton(self.ocr_mode_radio)
@@ -96,6 +108,7 @@ class SetupPage(QWidget):
         layout.addWidget(self._field("作文题目", self.question_edit))
 
         self.minimum_words = QSpinBox()
+        self.minimum_words.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.minimum_words.setRange(0, 5000)
         self.minimum_words.setSpecialValueText("按题目文字 / 考试默认")
         self.minimum_words.setSuffix(" 词")
@@ -105,13 +118,14 @@ class SetupPage(QWidget):
         self.image_label.setWordWrap(True)
         self.pick_image_btn = QPushButton("选择学生作文图片")
         self.pick_image_btn.clicked.connect(self._pick_student_image)
+        self.upload_empty_art = WorkflowArt("upload_empty", 76, 60)
         self.image_field = self._field(
             "学生作文图片",
-            self._pair(self.image_label, self.pick_image_btn),
+            self._pair(self.image_label, self.pick_image_btn, artwork=self.upload_empty_art),
         )
         layout.addWidget(self.image_field)
 
-        self.example_label = QLabel("可选：上传优秀作文作为评分参考")
+        self.example_label = QLabel(EXAMPLE_UPLOAD_HINT)
         self.example_label.setProperty("subtitle", True)
         self.example_label.setWordWrap(True)
         self.pick_example_btn = QPushButton("选择优秀作文")
@@ -157,11 +171,13 @@ class SetupPage(QWidget):
         return wrapper
 
     @staticmethod
-    def _pair(left: QWidget, button: QPushButton) -> QWidget:
+    def _pair(left: QWidget, button: QPushButton, *, artwork: QWidget | None = None) -> QWidget:
         wrapper = QWidget()
         layout = QHBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        if artwork is not None:
+            layout.addWidget(artwork)
         layout.addWidget(left, 1)
         layout.addWidget(button)
         return wrapper
@@ -178,6 +194,7 @@ class SetupPage(QWidget):
         self._student_image_path = path
         self.image_label.setText(path)
         self.image_label.setToolTip(path)
+        self.upload_empty_art.set_active(False)
 
     def _pick_example(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -224,8 +241,9 @@ class SetupPage(QWidget):
         self.image_field.setVisible(not manual_input)
         self.pick_image_btn.setEnabled(not manual_input)
         self.image_label.setEnabled(not manual_input)
+        self.upload_empty_art.set_active(not manual_input and not self._student_image_path)
         self.start_btn.setText(
-            "继续：输入作文文本" if manual_input else "识别图片并确认文本"
+            "继续输入作文正文" if manual_input else "识别图片并确认文本"
         )
         self._update_mode_notice()
 
@@ -260,7 +278,7 @@ class SetupPage(QWidget):
         self._student_image_path = data.get("image_path", "")
         self._excellent_path = data.get("excellent_path", "")
         self.image_label.setText(self._student_image_path or "尚未选择图片")
-        self.example_label.setText(self._excellent_path or "可选：上传本考试级别优秀作文作为评分参考")
+        self.example_label.setText(self._excellent_path or EXAMPLE_UPLOAD_HINT)
         self.minimum_words.setValue(data.get("minimum_words", 0) or 0)
         (self.manual_mode_radio if data.get("manual", True) else self.ocr_mode_radio).setChecked(True)
         self._update_input_mode_controls()

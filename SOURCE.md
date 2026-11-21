@@ -1,6 +1,6 @@
 # 项目来源
 
-- 来源：D:\fujian\FJEnglishAIGrader
+- 来源：独立的 FJEnglishAIGrader 项目
 - 来源提交：474c9e2d37de75661d0b6e20458639fb57280546
 - 来源版本：0.1.1
 - 本项目版本：1.0.0

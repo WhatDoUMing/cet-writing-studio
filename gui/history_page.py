@@ -7,7 +7,7 @@ from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
+    QGridLayout,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -31,6 +31,9 @@ from ai.prompt import (
     sanitize_question_summary,
 )
 from grading_review import REVIEW_CONFIRMED
+from gui.choice_controls import FixedChoice, SearchChoice
+from gui.theme_art import role_stamp
+from gui.workflow_art import WorkflowArt
 
 
 class HistoryPage(QWidget):
@@ -54,7 +57,7 @@ class HistoryPage(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 36, 40, 40)
+        layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(16)
 
         header = QHBoxLayout()
@@ -62,6 +65,8 @@ class HistoryPage(QWidget):
         title.setProperty("title", True)
         back_btn = QPushButton("返回首页")
         back_btn.clicked.connect(self.back_requested.emit)
+        self.history_stamp = role_stamp("naigou", 52)
+        header.addWidget(self.history_stamp)
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(back_btn)
@@ -72,26 +77,35 @@ class HistoryPage(QWidget):
         self.trend_label.setWordWrap(True)
         layout.addWidget(self.trend_label)
 
+        self.filter_grid = QGridLayout()
+        self.filter_grid.setHorizontalSpacing(12)
+        self.filter_grid.setVerticalSpacing(8)
+        self.filter_groups = []
+        self._filter_columns = 0
         filters = QHBoxLayout()
+        filters.setSpacing(12)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("筛选学生、题目或摘要")
+        self.search_edit.setPlaceholderText("搜索学生姓名或题目，也可搜摘要")
         self.search_edit.textChanged.connect(self._on_filters_changed)
-        self.group_combo = QComboBox()
+        self.group_combo = SearchChoice(accessible_name="选择题目分组", search_placeholder="搜索题目分组")
         self.group_combo.currentIndexChanged.connect(
             self._on_filters_changed
         )
-        self.exam_combo = QComboBox()
-        self.mode_combo = QComboBox()
-        self.review_combo = QComboBox()
+        self.exam_combo = FixedChoice(accessible_name="按考试筛选")
+        self.mode_combo = FixedChoice(accessible_name="按来源筛选")
+        self.review_combo = FixedChoice(accessible_name="按审核状态筛选")
         for combo, items in ((self.exam_combo, [("全部考试", None), ("CET-4", "CET-4"), ("CET-6", "CET-6")]),
                              (self.mode_combo, [("全部来源", None), ("学生练习", "student"), ("教师批改", "teacher")]),
                              (self.review_combo, [("全部审核状态", None), ("待复核", "pending"), ("已确认", "confirmed")])):
             for caption, value in items:
                 combo.addItem(caption, value)
             combo.currentIndexChanged.connect(self._on_filters_changed)
-            filters.addWidget(combo)
+            self.filter_groups.append(combo)
+        layout.addLayout(self.filter_grid)
+        self._fit_filters(self.width())
+        self.search_edit.setAccessibleName("搜索学生姓名或题目，也可搜摘要")
         filters.addWidget(self.search_edit, 1)
-        filters.addWidget(self.group_combo)
+        filters.addWidget(self.group_combo, 1)
         layout.addLayout(filters)
 
         scroll = QScrollArea()
@@ -104,10 +118,41 @@ class HistoryPage(QWidget):
         scroll.setWidget(self.groups_container)
         layout.addWidget(scroll, 1)
 
+        self.empty_state = QWidget(self.groups_container)
+        empty_row = QHBoxLayout(self.empty_state)
+        empty_row.setContentsMargins(0, 4, 0, 4)
+        empty_row.setSpacing(12)
+        self.empty_history_art = WorkflowArt("history_empty", 72, 60)
+        empty_row.addWidget(self.empty_history_art)
+        self.empty_history_label = QLabel()
+        self.empty_history_label.setProperty("subtitle", True)
+        self.empty_history_label.setWordWrap(True)
+        empty_row.addWidget(self.empty_history_label, 1)
+        self.empty_state.hide()
+
         self.load_more_btn = QPushButton("加载更多")
         self.load_more_btn.clicked.connect(self.load_more_requested.emit)
         self.load_more_btn.setVisible(False)
         layout.addWidget(self.load_more_btn)
+
+    def _fit_filters(self, width):
+        columns = 3 if width >= 900 else (2 if width >= 560 else 1)
+        if columns == self._filter_columns:
+            return
+        self._filter_columns = columns
+        for group in self.filter_groups:
+            self.filter_grid.removeWidget(group)
+        for i, group in enumerate(self.filter_groups):
+            column = i % columns
+            span = columns - column if i == len(self.filter_groups) - 1 else 1
+            self.filter_grid.addWidget(group, i // columns, column, 1, span)
+        for i in range(3):
+            self.filter_grid.setColumnStretch(i, 1 if i < columns else 0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "filter_groups"):
+            self._fit_filters(event.size().width())
 
     def load_history(
         self,
@@ -209,8 +254,7 @@ class HistoryPage(QWidget):
         selected = self.group_combo.currentData()
         self._loading_filters = True
         try:
-            self.group_combo.clear()
-            self.group_combo.addItem("全部题目", None)
+            choices = [("全部题目", None)]
             metadata = self._group_metadata or self._metadata_from_records(
                 self.records
             )
@@ -222,13 +266,10 @@ class HistoryPage(QWidget):
                 label = self._summary(group) or self._short_question(
                     str(group.get("question", ""))
                 )
-                self.group_combo.addItem(
-                    f"{label}（{int(group.get('record_count', 0))}）",
-                    key,
-                )
-            index = self.group_combo.findData(selected)
-            if index >= 0:
-                self.group_combo.setCurrentIndex(index)
+                level = group.get("exam_level") or key.partition(":")[0]
+                choices.append((f"{level}  /  {label}（{int(group.get('record_count', 0))}）", key))
+            # Do not briefly erase the open popup's uncommitted keyboard preview.
+            self.group_combo.replaceItems(choices, current_data=selected)
         finally:
             self._loading_filters = False
 
@@ -271,10 +312,18 @@ class HistoryPage(QWidget):
             card = self._build_group(group, records)
             self.groups_layout.addWidget(card)
             cards.append(card)
+        genuinely_empty = (
+            not self.total_count and not self.records and not query
+            and selected_group is None and not any(self.current_filters().values())
+        )
+        shown = self.empty_history_art.set_active(not groups and genuinely_empty)
+        self.history_stamp.setVisible(self.history_stamp.role is not None and not shown)
         if not groups:
-            empty = QLabel("没有符合条件的历史记录")
-            empty.setProperty("subtitle", True)
-            self.groups_layout.addWidget(empty)
+            self.empty_history_label.setText(
+                "还没有评分记录" if genuinely_empty else "没有符合条件的历史记录"
+            )
+            self.groups_layout.addWidget(self.empty_state)
+            self.empty_state.show()
         self.groups_layout.addStretch(1)
         # No entrance animation here on purpose: the list re-renders on every
         # search keystroke (tens of times a day) and the frequency gate says
@@ -284,7 +333,9 @@ class HistoryPage(QWidget):
         while self.groups_layout.count():
             item = self.groups_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is self.empty_state:
+                widget.hide()
+            elif widget is not None:
                 widget.deleteLater()
 
     def _build_group(
@@ -417,7 +468,7 @@ class HistoryPage(QWidget):
         student_edit.setPlaceholderText("如需空值请留空")
         form.addRow("学生姓名", student_edit)
 
-        type_combo = QComboBox()
+        type_combo = FixedChoice(accessible_name="历史作文类型")
         type_combo.addItems(["CET-4", "CET-6"])
         current_type = str(record.get("type", "CET-4"))
         type_index = type_combo.findText(current_type)
@@ -469,7 +520,7 @@ class HistoryPage(QWidget):
         sign = "+" if delta >= 0 else ""
         count = len(trend)
         self.trend_label.setText(
-            f"{self.trend_level} · {'AI 练习分' if self.usage_mode == 'student' else '教师确认分'} · "
+            f"{self.trend_level} {'AI 练习分' if self.usage_mode == 'student' else '教师确认分'}，"
             f"共 {count} 次评分。首次 {first:g} 分，最近 {last:g} 分，"
             f"提升 {sign}{delta:g} 分。"
         )
