@@ -58,7 +58,7 @@ def length_notice(text: str, level: str, question: str = "", minimum: int | None
     low, high = length_requirement(level, question, minimum)
     target = (f"不超过 {high} 词" if low == 0 else f"{low}—{high} 词") if high is not None else f"至少 {low} 词"
     state = "低于要求" if count < low else "超过题目上限" if high and count > high else "达到长度要求"
-    return f"本地词数 {count}  ·  {level} / {target}  ·  {state}；长度纳入整体评判"
+    return f"本地词数 {count}。{level} 要求{target}，{state}。长度纳入整体评判"
 
 def integer_score(value: Any) -> int:
     if type(value) is not int or not 0 <= value <= 15:

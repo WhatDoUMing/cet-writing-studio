@@ -26,18 +26,12 @@ Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
 
 复制输出的一整行公钥。打开 [GitHub SSH keys](https://github.com/settings/keys)，点击 **New SSH key**，类型选择 **Authentication Key**，粘贴公钥并保存。确认登录的 GitHub 账户具有目标仓库写入权限。
 
-## 4. 给当前聊天提供私钥文件路径
+## 4. 在自己的终端验证
 
-```powershell
-Join-Path $env:USERPROFILE '.ssh\id_ed25519'
-```
+使用 GitHub SSH 认证前，可在自己的终端运行：
 
-只发送这个命令输出的完整路径，例如 `C:\Users\你的用户名\.ssh\id_ed25519`。不要发送私钥文件内容。Codex 将使用该路径重试推送；若目录存在应用访问限制，会申请对该文件的读取权限。
+    ssh -T git@github.com
 
-若密钥设置了口令，可在自己的终端或 SSH agent 中解锁，再继续上传。不要把口令写入项目配置或 Git 文件。
+只在本机解锁密钥。不要在聊天中发送私钥、私钥路径、口令或令牌，不写进项目配置或 Git。验证成功后也要核对仓库写权限，获授权的变更走独立分支和草稿 PR，不直推主分支。
 
-官方说明：[GitHub 生成 SSH 密钥](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)。
-
-## 当前上传状态
-
-源码已有独立 Git 仓库与功能提交，origin 为 `git@github.com:WhatDoUMing/cet-writing-studio.git`。远端上传暂待凭据配置；未强制推送，也未修改原项目 Git。
+官方说明：[生成 SSH 密钥并添加到 SSH agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)。

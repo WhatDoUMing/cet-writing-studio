@@ -26,6 +26,17 @@ def utc_now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+_OCR_DRAFT_FIELDS = (
+    "id", "student_id", "student_name", "usage_mode", "type", "question",
+    "image_path", "minimum_words", "time", "ocr_text",
+)
+_OCR_DRAFT_WHERE = " AND ".join(f"{column} IS ?" for column in _OCR_DRAFT_FIELDS) + """
+    AND review_status = ?
+    AND score = '' AND ai_score = '' AND teacher_score = ''
+    AND submitted_text = '' AND report_json = '{}' AND raw_ai_report = '{}'
+"""
+
+
 class Database:
     """Small repository around a single SQLite database file."""
 
@@ -232,18 +243,23 @@ class Database:
 
     def get_or_create_student(self, name: str | None) -> int:
         """Return the id of an existing student or create one."""
-        name = (name or "").strip() or "默认学生"
         with self.transaction() as conn:
-            row = conn.execute(
-                "SELECT id FROM students WHERE name = ?", (name,)
-            ).fetchone()
-            if row is not None:
-                return int(row["id"])
-            cursor = conn.execute(
-                "INSERT INTO students(name, create_time) VALUES (?, ?)",
-                (name, utc_now_iso()),
-            )
-            return int(cursor.lastrowid)
+            return self._get_or_create_student(conn, name)
+
+    @staticmethod
+    def _get_or_create_student(conn: sqlite3.Connection, name: str | None) -> int:
+        """Resolve the student using the caller's transaction."""
+        name = (name or "").strip() or "默认学生"
+        row = conn.execute(
+            "SELECT id FROM students WHERE name = ?", (name,)
+        ).fetchone()
+        if row is not None:
+            return int(row["id"])
+        cursor = conn.execute(
+            "INSERT INTO students(name, create_time) VALUES (?, ?)",
+            (name, utc_now_iso()),
+        )
+        return int(cursor.lastrowid)
 
     def create_essay(
         self,
@@ -278,50 +294,45 @@ class Database:
         if usage_mode not in {"student", "teacher"}:
             raise ValueError("usage_mode 须为 student 或 teacher")
         display_name = (student_name or "").strip() or None
-        student_id = self.get_or_create_student(display_name)
         with self.transaction() as conn:
+            # Keep creation provenance and the original AI report in the same
+            # transaction as the essay and its student.
+            fields = {
+                "student_id": self._get_or_create_student(conn, display_name),
+                "student_name": display_name,
+                "type": essay_type,
+                "question": question,
+                "question_summary": question_summary,
+                "image_path": image_path,
+                "ocr_text": ocr_text,
+                "score": score,
+                "ai_score": ai_score,
+                "teacher_score": teacher_score,
+                "review_status": review_status,
+                "teacher_comment": teacher_comment,
+                "teacher_reason": teacher_reason,
+                "reviewer": reviewer,
+                "reviewed_at": reviewed_at,
+                "ai_provider": ai_provider,
+                "ai_model": ai_model,
+                "prompt_version": prompt_version,
+                "rubric_version": rubric_version,
+                "max_score": max_score,
+                "report_json": report_json,
+                "feedback": feedback,
+                "time": utc_now_iso(),
+                "usage_mode": usage_mode,
+                "submitted_text": submitted_text if submitted_text is not None else "",
+                "raw_ai_report": raw_ai_report if raw_ai_report is not None else "{}",
+                "minimum_words": minimum_words,
+            }
+            columns = ", ".join(fields)
+            placeholders = ", ".join("?" for _ in fields)
             cursor = conn.execute(
-                """
-                INSERT INTO essays(
-                    student_id, student_name, type, question,
-                    question_summary, image_path, ocr_text, score,
-                    ai_score, teacher_score, review_status,
-                    teacher_comment, teacher_reason, reviewer, reviewed_at,
-                    ai_provider, ai_model, prompt_version, rubric_version,
-                    max_score, report_json, feedback, time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    student_id,
-                    display_name,
-                    essay_type,
-                    question,
-                    question_summary,
-                    image_path,
-                    ocr_text,
-                    score,
-                    ai_score,
-                    teacher_score,
-                    review_status,
-                    teacher_comment,
-                    teacher_reason,
-                    reviewer,
-                    reviewed_at,
-                    ai_provider,
-                    ai_model,
-                    prompt_version,
-                    rubric_version,
-                    max_score,
-                    report_json,
-                    feedback,
-                    utc_now_iso(),
-                ),
+                f"INSERT INTO essays ({columns}) VALUES ({placeholders})",
+                tuple(fields.values()),
             )
             essay_id = int(cursor.lastrowid)
-        self.update_essay(essay_id, submitted_text=submitted_text, raw_ai_report=raw_ai_report, minimum_words=minimum_words)
-        with self.transaction() as conn:
-            conn.execute("UPDATE essays SET usage_mode = ? WHERE id = ?", (usage_mode, essay_id))
         log.info("Created essay id=%s type=%s", essay_id, essay_type)
         return essay_id
 
@@ -354,64 +365,64 @@ class Database:
         raw_ai_report: str | None = None,
         minimum_words: Any = _UNSET,
     ) -> None:
-        fields: dict[str, Any] = {}
-        for key, value in (("submitted_text", submitted_text), ("raw_ai_report", raw_ai_report)):
-            if value is not None:
-                fields[key] = value
+        fields: dict[str, Any] = {
+            column: value
+            for column, value in (
+                ("type", essay_type),
+                ("question", question),
+                ("question_summary", question_summary),
+                ("image_path", image_path),
+                ("ocr_text", ocr_text),
+                ("score", score),
+                ("report_json", report_json),
+                ("feedback", feedback),
+                ("ai_score", ai_score),
+                ("teacher_score", teacher_score),
+                ("review_status", review_status),
+                ("teacher_comment", teacher_comment),
+                ("teacher_reason", teacher_reason),
+                ("reviewer", reviewer),
+                ("reviewed_at", reviewed_at),
+                ("ai_provider", ai_provider),
+                ("ai_model", ai_model),
+                ("prompt_version", prompt_version),
+                ("rubric_version", rubric_version),
+                ("max_score", max_score),
+                ("submitted_text", submitted_text),
+                ("raw_ai_report", raw_ai_report),
+            )
+            if value is not None
+        }
         if minimum_words is not _UNSET:
             fields["minimum_words"] = minimum_words
-        if student_name is not None:
-            display_name = student_name.strip() or None
-            fields["student_name"] = display_name
-            fields["student_id"] = self.get_or_create_student(display_name)
-        if essay_type is not None:
-            fields["type"] = essay_type
-        if question is not None:
-            fields["question"] = question
-        if question_summary is not None:
-            fields["question_summary"] = question_summary
-        if image_path is not None:
-            fields["image_path"] = image_path
-        if ocr_text is not None:
-            fields["ocr_text"] = ocr_text
-        if score is not None:
-            fields["score"] = score
-        if report_json is not None:
-            fields["report_json"] = report_json
-        if feedback is not None:
-            fields["feedback"] = feedback
-        if ai_score is not None:
-            fields["ai_score"] = ai_score
-        if teacher_score is not None:
-            fields["teacher_score"] = teacher_score
-        if review_status is not None:
-            fields["review_status"] = review_status
-        if teacher_comment is not None:
-            fields["teacher_comment"] = teacher_comment
-        if teacher_reason is not None:
-            fields["teacher_reason"] = teacher_reason
-        if reviewer is not None:
-            fields["reviewer"] = reviewer
-        if reviewed_at is not None:
-            fields["reviewed_at"] = reviewed_at
-        if ai_provider is not None:
-            fields["ai_provider"] = ai_provider
-        if ai_model is not None:
-            fields["ai_model"] = ai_model
-        if prompt_version is not None:
-            fields["prompt_version"] = prompt_version
-        if rubric_version is not None:
-            fields["rubric_version"] = rubric_version
-        if max_score is not None:
-            fields["max_score"] = max_score
-        if not fields:
+        if not fields and student_name is None:
             return
-        assignments = ", ".join(f"{key} = ?" for key in fields)
         with self.transaction() as conn:
+            if student_name is not None:
+                display_name = student_name.strip() or None
+                fields["student_name"] = display_name
+                fields["student_id"] = self._get_or_create_student(conn, display_name)
+            assignments = ", ".join(f"{column} = ?" for column in fields)
             conn.execute(
                 f"UPDATE essays SET {assignments} WHERE id = ?",
                 (*fields.values(), essay_id),
             )
+
+    def still_owns_ocr_draft(self, expected: dict[str, Any]) -> bool:
+        """Match the remembered draft version, not an arbitrary essay with similar text."""
+        args = tuple(expected[column] for column in _OCR_DRAFT_FIELDS) + (REVIEW_PENDING,)
+        return self.connect().execute(
+            f"SELECT 1 FROM essays WHERE {_OCR_DRAFT_WHERE}", args,
+        ).fetchone() is not None
+
+    def update_owned_ocr_draft(self, expected: dict[str, Any], text: str) -> bool:
+        """Update only a still-pending draft with the same identity and OCR revision."""
+        args = tuple(expected[column] for column in _OCR_DRAFT_FIELDS) + (REVIEW_PENDING,)
+        with self.transaction() as conn:
+            result = conn.execute(
+                f"UPDATE essays SET ocr_text = ? WHERE {_OCR_DRAFT_WHERE}", (text, *args),
+            )
+            return result.rowcount == 1
 
     def delete_essay(self, essay_id: int) -> None:
         with self.transaction() as conn:

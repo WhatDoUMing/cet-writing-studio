@@ -32,6 +32,7 @@ from cet_scoring import length_notice
 from gui.styles import SPELL_HINT_COLOR
 from gui.text_hints import SpellingHintService
 from gui.workers import SpellCheckWorker
+from gui.workflow_art import WorkflowArt
 
 
 class OCRPage(QWidget):
@@ -43,6 +44,7 @@ class OCRPage(QWidget):
         super().__init__(parent)
         self.hint_service = SpellingHintService()
         self._current_image_path = ""
+        self._re_recognition_allowed = True
         self._busy = False
         self._exam_level = "CET-4"
         self._question = ""
@@ -62,14 +64,25 @@ class OCRPage(QWidget):
         layout.setContentsMargins(32, 32, 32, 32)
         layout.setSpacing(18)
 
-        title = QLabel("03 · 文本确认")
+        title = QLabel("03 文本确认")
         title.setProperty("title", True)
-        layout.addWidget(title)
-
         self.subtitle = QLabel("核对并确认作文文本。波浪线表示系统建议检查的单词。")
         self.subtitle.setProperty("subtitle", True)
         self.subtitle.setWordWrap(True)
-        layout.addWidget(self.subtitle)
+
+        # Title and guidance share a single block: artwork cannot increase the
+        # cross-page minimum enough to squeeze the reserved startup dock.
+        guidance = QHBoxLayout()
+        guidance.setSpacing(8)
+        self.guide_art = WorkflowArt("guide", 64, 52)
+        guidance.addWidget(self.guide_art, alignment=Qt.AlignmentFlag.AlignVCenter)
+        intro = QVBoxLayout()
+        intro.setSpacing(8)
+        intro.addWidget(title)
+        intro.addWidget(self.subtitle)
+        guidance.addLayout(intro, 1)
+        self.guide_art.set_active(True)
+        layout.addLayout(guidance)
 
         self.length_label = QLabel()
         self.length_label.setWordWrap(True)
@@ -165,8 +178,9 @@ class OCRPage(QWidget):
             self.clear_image()
             return
         self._current_image_path = str(image_path)
+        self.image_label.setToolTip(self._current_image_path)
         self.image_panel.show()
-        self.re_btn.show()
+        self.re_btn.setVisible(self._re_recognition_allowed)
         self.text_header.setText("识别文本（可直接修改）")
         self.text_edit.setPlaceholderText("识别完成后，请核对并修改作文原文…")
         self.subtitle.setText("左侧核对原图，右侧修改识别文本，再确认原文进入评分。")
@@ -186,7 +200,6 @@ class OCRPage(QWidget):
             self.image_label.setText("图片加载失败")
             return
         self.image_label.setPixmap(QPixmap.fromImage(qimage))
-        self.image_label.setToolTip(self._current_image_path)
 
     def clear_image(self, message: str = "直接输入模式，无需图片") -> None:
         self._current_image_path = ""
@@ -198,6 +211,11 @@ class OCRPage(QWidget):
         self.text_header.setText("作文原文（可直接编辑）")
         self.text_edit.setPlaceholderText("在这里粘贴或输入英文作文原文…")
         self.subtitle.setText("粘贴或输入作文原文，检查词数与表达，再确认原文进入评分。")
+
+    def set_re_recognition_allowed(self, allowed: bool) -> None:
+        self._re_recognition_allowed = allowed
+        self.re_btn.setVisible(allowed and bool(self._current_image_path))
+        self._refresh_controls()
 
     def set_text(self, text: str) -> None:
         self._spell_generation += 1
@@ -229,7 +247,7 @@ class OCRPage(QWidget):
 
     def _refresh_controls(self) -> None:
         disabled = self._busy or self._spell_check_running
-        self.re_btn.setEnabled(not disabled and bool(self._current_image_path))
+        self.re_btn.setEnabled(not disabled and self._re_recognition_allowed and bool(self._current_image_path))
         self.skip_btn.setEnabled(not disabled)
         self.fix_btn.setEnabled(not disabled and self.fix_btn.isVisible())
         self.check_btn.setEnabled(not disabled)

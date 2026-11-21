@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
+import tempfile
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -16,7 +18,6 @@ def setup_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -> Pa
     ``logging.getLogger("CETWritingStudio")``.
     """
     log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger("CETWritingStudio")
     if logger.handlers:
@@ -34,14 +35,26 @@ def setup_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -> Pa
     console.setFormatter(fmt)
     logger.addHandler(console)
 
-    file_handler = RotatingFileHandler(
-        log_dir / "app.log",
-        maxBytes=2_000_000,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(fmt)
-    logger.addHandler(file_handler)
+    # An existing log may belong to another Windows account. Keep startup
+    # available and use a per-user location when the project log is read-only.
+    user_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
+    candidates = (log_dir, user_root / "CETWritingStudio" / "logs",
+                  Path(tempfile.gettempdir()) / "CETWritingStudio" / "logs")
+    for candidate in dict.fromkeys(candidates):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                candidate / "app.log", maxBytes=2_000_000,
+                backupCount=5, encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.warning("Log location unavailable (%s): %s", candidate, exc)
+            continue
+        file_handler.setFormatter(fmt)
+        logger.addHandler(file_handler)
+        return candidate
+
+    logger.warning("File logging unavailable; using console logging only")
 
     return log_dir
 

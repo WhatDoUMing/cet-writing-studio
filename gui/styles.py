@@ -1,8 +1,9 @@
 """Editorial-inspired Qt style sheet for the desktop grading UI.
 
-The interface uses a warm paper-like canvas, ink-colored text, a restrained
-teal accent, and consistent grid-like borders. The dark theme keeps the same
-hierarchy with low-glare surfaces and a softer teal accent.
+Warm paper, ink and an olive accent echo the local companion artwork.
+The Unslop design guide (github.com/heydamir/unslop) informed the hierarchy:
+let the work lead, use space rather than outlines, and distinguish keyboard
+focus from the selected value in both light and dark themes.
 
 Only two entry points are public:
 
@@ -15,12 +16,75 @@ from __future__ import annotations
 
 from typing import Any
 
+from gui.local_assets import configured_asset_dir
+
 SPELL_HINT_COLOR = "#b83f36"
 
 FONT_STACK = '"Microsoft YaHei", "Segoe UI", "Arial"'
 
 
-def prepare_fonts(application) -> None:
+PRIVATE_FONT_FAMILY = "ResourceHanRounded CN"
+# CRC/file names alone cannot authorize a locally supplied font.
+# Only these two user-selected immutable font files may enter this app's font database.
+PRIVATE_FONT_FILES = (
+    ("ui-regular.ttf", "a1d07c36573da46d64da1a79ed246ee295089b75f19490adca5595847a98ee9a"),
+    ("ui-bold.ttf", "2ea722d1e656b8a0cc9faa5118e41f37168527e9e3b226f79550ec4d0a587435"),
+)
+FONT_GLYPH_PROBE = "欢迎你奶家人写作历史设置批改，。！？CET-46WritingGrader123%"
+
+def _private_font_dir():
+    from pathlib import Path
+    return configured_asset_dir("fonts") or Path(__file__).resolve().parents[1] / "work" / "preview" / "fonts"
+
+
+def _load_private_family(application, directory):
+    """Register the verified family for this Qt process only; never install system fonts."""
+    import hashlib
+    from pathlib import Path
+    from PyQt6.QtGui import QFontDatabase, QRawFont
+    root = Path(directory).resolve()
+    cache = getattr(application, "_cet_local_font_families", None)
+    if cache is None:
+        cache = application._cet_local_font_families = {}
+    added = []
+    try:
+        paths = [root / name for name, _ in PRIVATE_FONT_FILES]
+        stamps = tuple((p.stat().st_size, p.stat().st_mtime_ns) for p in paths)
+        key = (root, stamps)
+        if key in cache:
+            return cache[key]
+        for path, (_, expected) in zip(paths, PRIVATE_FONT_FILES):
+            if path.resolve().parent != root or not 0 < path.stat().st_size <= 32*1024*1024:
+                raise ValueError("Invalid local font path or size")
+            blob = path.read_bytes()
+            if hashlib.sha256(blob).hexdigest() != expected:
+                raise ValueError("Not the approved local font")
+            raw = QRawFont(blob, 16.)
+            if not raw.isValid() or not all(raw.supportsCharacter(ord(c)) for c in FONT_GLYPH_PROBE):
+                raise ValueError("Cannot render the required bilingual interface")
+            font_id = QFontDatabase.addApplicationFontFromData(blob)
+            if font_id < 0:
+                raise ValueError("Qt could not register the local face")
+            added.append(font_id)
+            if PRIVATE_FONT_FAMILY not in QFontDatabase.applicationFontFamilies(font_id):
+                raise ValueError("Unexpected family registered by Qt")
+        cache[key] = PRIVATE_FONT_FAMILY
+        return PRIVATE_FONT_FAMILY
+    except (OSError, ValueError, RuntimeError):
+        for font_id in reversed(added):
+            QFontDatabase.removeApplicationFont(font_id)
+        return ""
+
+
+def ui_font_stack(fallback=FONT_STACK):
+    """QSS font stack; the application field is only ever a verified constant."""
+    from PyQt6.QtCore import QCoreApplication
+    app = QCoreApplication.instance()
+    family = app.property("cetPrivateUiFont") if app else ""
+    return ('"' + PRIVATE_FONT_FAMILY + '", ' + fallback) if family == PRIVATE_FONT_FAMILY else fallback
+
+
+def prepare_fonts(application, *, private_dir=None) -> None:
     """Load system fonts if a headless Windows Qt backend enumerates none."""
     import os
     from pathlib import Path
@@ -31,7 +95,9 @@ def prepare_fonts(application) -> None:
             path = font_dir / name
             if path.exists():
                 QFontDatabase.addApplicationFont(str(path))
-    application.setFont(QFont("Microsoft YaHei" if os.name == "nt" else "Sans Serif", 10))
+    family = _load_private_family(application, private_dir if private_dir is not None else _private_font_dir())
+    application.setProperty("cetPrivateUiFont", family)
+    application.setFont(QFont(family or ("Microsoft YaHei" if os.name == "nt" else "Sans Serif"), 10))
 
 LIGHT: dict[str, str] = {
     "canvas": "#f5f4ef",
@@ -94,6 +160,23 @@ DARK: dict[str, str] = {
     "hero_line": "rgba(237, 243, 238, 0.20)",
     "hero_hover": "rgba(237, 243, 238, 0.09)",
 }
+
+# The Nai family reference shares golden bodies and olive irises. Keep the
+# gold on the cover spine; an accessible olive is the only action colour.
+LIGHT.update({
+    "canvas": "#faf9f4", "surface": "#f0efe7", "field": "#fffefa",
+    "text": "#2b2b22", "muted": "#5c6051", "line": "#d9d9cb",
+    "accent": "#496224", "accent_hover": "#3c521d", "accent_press": "#34471a",
+    "accent_soft": "#e7edda", "selection": "#dee9c9",
+    "notebook": "#f3edcf", "spine": "#c39a22",
+})
+DARK.update({
+    "canvas": "#1c1e19", "surface": "#272a23", "field": "#23251f",
+    "text": "#f1f0e6", "muted": "#bdc2b0", "line": "#454a3e",
+    "accent": "#b7d58a", "accent_text": "#202819", "accent_hover": "#c6dfa2",
+    "accent_press": "#a3c774", "accent_soft": "#363f2c", "selection": "#454f35",
+    "notebook": "#353322", "spine": "#e2bd51",
+})
 
 _TEMPLATE = """
 /* ---------------------------------------------------------------- base --- */
@@ -194,6 +277,36 @@ QFrame#sidebar QLabel#brand {
     color: %(text)s;
 }
 
+QFrame#notebookCover {
+    background: %(notebook)s;
+    border: 1px solid %(line)s;
+    border-left: 5px solid %(spine)s;
+    border-radius: 10px;
+}
+QFrame#examLine {
+    background: %(field)s;
+    border: 1px solid %(line)s;
+    border-radius: 8px;
+}
+QRadioButton[choiceRadio="true"] {
+    border: 1px solid transparent;
+    border-radius: 10px; padding: 6px 12px; background: %(surface)s;
+}
+QRadioButton[choiceRadio="true"]:checked {
+    background: %(accent_soft)s; color: %(accent)s;
+}
+QRadioButton[choiceRadio="true"]::indicator {
+    width: 12px; height: 12px; border: 2px solid %(line)s; border-radius: 8px;
+}
+QRadioButton[choiceRadio="true"]::indicator:checked {
+    background: %(accent)s; border: 2px solid %(accent)s; border-radius: 8px;
+}
+QRadioButton[choiceRadio="true"]:focus {
+    border: 1px solid %(accent)s; text-decoration: underline;
+}
+QPushButton#recordLink { text-align: left; padding: 4px 16px; min-height: 44px; }
+QPushButton#recordLink:focus { border: 2px solid %(accent)s; }
+QPushButton[link="true"]:focus { border: 1px solid %(accent)s; }
 /* --------------------------------------------------------------- cards --- */
 QFrame[card="true"] {
     background: %(surface)s;
@@ -324,6 +437,48 @@ QPushButton:disabled {
     color: %(disabled_text)s;
     border-color: %(line)s;
 }
+
+/* Native segmented options: selected and keyboard focus remain distinct. */
+QPushButton[choiceOption="true"] {
+    background: %(surface)s;
+    color: %(muted)s;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    min-height: 18px;
+    padding: 5px 9px;
+}
+QPushButton[choiceOption="true"]:hover {
+    background: %(hover)s; color: %(text)s; border-color: transparent;
+}
+QPushButton[choiceOption="true"]:checked {
+    background: %(accent_soft)s; color: %(accent)s;
+    font-weight: 600; border-color: transparent;
+}
+QPushButton[choiceOption="true"]:focus,
+QPushButton[choiceOption="true"]:checked:focus {
+    border: 2px solid %(accent)s; text-decoration: underline;
+}
+QPushButton[choiceOption="true"]:disabled {
+    background: %(disabled_bg)s; color: %(disabled_text)s;
+}
+QPushButton[choiceTrigger="true"] {
+    color: %(text)s; background: %(surface)s;
+    border: 2px solid transparent; border-radius: 12px; padding: 5px 12px;
+}
+QPushButton[choiceTrigger="true"]:focus { border: 2px solid %(accent)s; }
+QFrame#choicePopup {
+    border: 1px solid %(line)s; border-radius: 16px; background: %(field)s;
+}
+QListWidget#choiceResults {
+    border: 0; background: %(field)s; color: %(text)s; outline: 0;
+}
+QListWidget#choiceResults::item {
+    min-height: 24px; padding: 5px 8px; border: 1px solid transparent; border-radius: 8px;
+}
+QListWidget#choiceResults::item:selected {
+    border: 1px solid %(accent)s; background: %(accent_soft)s; color: %(accent)s;
+}
+QLabel#choiceEmpty { color: %(muted)s; padding: 8px; }
 
 QPushButton[primary="true"] {
     background: %(accent)s;
@@ -647,13 +802,35 @@ QToolTip {
     border-radius: 8px;
     padding: 6px 10px;
 }
+
+/* Settings uses the genuine Regular cut for dense labels and button rows.
+ * Base controls and checked choices keep the normal theme colors and focus;
+ * a filled chip, not a heavier stroke, carries the selected state. */
+QWidget#settingsPage QLabel[fieldLabel="true"] {
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 1px;
+    color: %(text)s;
+}
+
+QWidget#settingsPage QPushButton,
+QWidget#settingsPage QPushButton[choiceOption="true"]:checked {
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 1px;
+}
 """
 
 
 def _render(palette: dict[str, str]) -> str:
     tokens: dict[str, Any] = dict(palette)
-    tokens["font"] = FONT_STACK
-    return _TEMPLATE % tokens
+    tokens["font"] = ui_font_stack()
+    sheet = _TEMPLATE % tokens
+    if tokens["font"] != FONT_STACK:
+        # Use the two genuine cuts; do not synthesize a semibold face.
+        sheet = sheet.replace("font-weight: 600", "font-weight: 700")
+        sheet = sheet.replace("QPushButton {\n", "QPushButton {\n    font-weight: 700;\n", 1)
+    return sheet
 
 
 LIGHT_STYLE = _render(LIGHT)
@@ -662,6 +839,7 @@ DARK_STYLE = _render(DARK)
 
 def get_app_style(theme: str) -> str:
     """Return the full application style sheet for the selected theme."""
-    if str(theme).strip().lower() == "dark":
-        return DARK_STYLE
-    return LIGHT_STYLE
+    dark = str(theme).strip().lower() == "dark"
+    if ui_font_stack() != FONT_STACK:
+        return _render(DARK if dark else LIGHT)
+    return DARK_STYLE if dark else LIGHT_STYLE

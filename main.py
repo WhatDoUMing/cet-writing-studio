@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import faulthandler
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,7 +27,22 @@ def resource_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def main() -> int:
+def startup_audio_allowed(requested: bool, *, reduced: bool, platform: str, qt_platform: str) -> bool:
+    """Only an explicit, interactive Windows session may prepare startup sound."""
+    requested_qt = os.environ.get("QT_QPA_PLATFORM", "").split(";", 1)[0].split(":", 1)[0].strip().casefold()
+    return (
+        requested and not reduced and platform == "win32"
+        and qt_platform.casefold() == "windows"
+        and requested_qt not in {"offscreen", "minimal", "minimalegl", "vnc"}
+    )
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="CET Writing Studio")
+    sound = parser.add_mutually_exclusive_group()
+    sound.add_argument("--with-startup-audio", action="store_true", help="Use the optional local startup soundtrack")
+    sound.add_argument("--silent", action="store_true", help="Start without sound (the default)")
+    options = parser.parse_args(argv)
     root = project_root()
 
     from PyQt6.QtCore import Qt
@@ -34,6 +51,7 @@ def main() -> int:
     from config_manager import ConfigManager
     from database.sqlite import Database
     from gui.main_window import MainWindow
+    from gui.startup_integration import attach_startup_splash, local_startup_assets
     from gui.styles import get_app_style, prepare_fonts
     from logger_config import setup_logging
     from memory.manager import MemoryManager
@@ -45,7 +63,7 @@ def main() -> int:
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0]])
     app.setApplicationName("CETWritingStudio")
     app.setOrganizationName("CETWritingStudio")
     prepare_fonts(app)
@@ -57,6 +75,15 @@ def main() -> int:
     ocr_engine = TrOCREngine(config.get_ocr_config())
 
     window = MainWindow(config, database, memory, ocr_engine)
+    assets = local_startup_assets(root)
+    reduced = bool(config.get("app.reduce_motion", False))
+    factory = None
+    if startup_audio_allowed(options.with_startup_audio, reduced=reduced, platform=sys.platform,
+                             qt_platform=app.platformName()):
+        from gui.startup_audio import optional_sound_factory
+
+        factory = optional_sound_factory(assets, assets.parent / "startup_audio_contract.json")
+    attach_startup_splash(window, asset_dir=assets, reduced_motion=reduced, sound_factory=factory)
     window.show()
     return app.exec()
 
